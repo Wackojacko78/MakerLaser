@@ -1,0 +1,27 @@
+[package]
+name = "makerlaser-rust-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Tauri shell: wires the MakerLaser domain, CAM and machine crates to the React UI."
+default-run = "makerlaser-rust-core"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+makerlaser-common.workspace = true
+makerlaser-geometry.workspace = true
+makerlaser-raster.workspace = true
+makerlaser-machine.workspace = true
+makerlaser-project.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+log.workspace = true
+base64 = "0.22"
+env_logger = "0.11"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"

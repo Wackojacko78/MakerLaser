@@ -1,0 +1,1079 @@
+//! Toolpath generation: `Operations -> Toolpaths`. Converts planned operations into an
+//! ordered list of straight machine moves in **workspace coordinates** (conversion to
+//! machine coordinates happens once, in the G-code stage).
+//!
+//! * **Cut ordering** is nesting-aware: paths are grouped by containment depth and the
+//!   deepest group (holes, islands) is cut first. Travel optimisation (nearest neighbour,
+//!   with closed paths started at their nearest vertex) only reorders paths *within* a
+//!   depth group, so it can never move an outer boundary ahead of the holes inside it.
+//! * **Passes** repeat the *whole operation*, not each path, so material stays supported
+//!   until the final pass.
+//! * **Kerf compensation** grows outer boundaries and shrinks holes by half the kerf.
+//! * **Fill** uses an even-odd scanline fill with serpentine (alternating) direction.
+//! * **Raster** resamples the image through the object's full affine transform, applies the
+//!   adjustments and dithering, and emits scan-line runs (bidirectional if requested).
+
+use std::collections::{BTreeMap, HashMap};
+
+use makerlaser_common::{
+    BoundingBox, CutOrderStrategy, DitherAlgorithm as CommonDither, FillPattern, ImageData,
+    LaserOperation, Layer, ObjectKind, Path2D, Point2, ProjectFile, RasterOperation, ScanDirection,
+    Transform2D, WorkspaceObject,
+};
+use makerlaser_geometry::{kerf_compensate, KerfSide};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::error::{ProjectError, Result};
+
+const MAX_RASTER_PIXELS: u64 = 60_000_000;
+const MAX_SEGMENTS: usize = 4_000_000;
+const MAX_FILL_LINES: usize = 400_000;
+const RAPID_FEED_MM_MIN: f64 = 6000.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveKind {
+    Travel,
+    Cut,
+    Score,
+    Fill,
+    Engrave,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ToolpathSegment {
+    pub from: Point2,
+    pub to: Point2,
+    pub kind: MoveKind,
+    pub feed_mm_min: f64,
+    pub power_percent: f64,
+    pub air_assist: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct ToolpathStats {
+    pub travel_mm: f64,
+    pub cut_mm: f64,
+    pub engrave_mm: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Toolpath {
+    pub segments: Vec<ToolpathSegment>,
+}
+
+impl Toolpath {
+    pub fn stats(&self) -> ToolpathStats {
+        let mut s = ToolpathStats::default();
+        for seg in &self.segments {
+            let len = seg.from.distance_to(&seg.to);
+            match seg.kind {
+                MoveKind::Travel => s.travel_mm += len,
+                MoveKind::Cut | MoveKind::Score => s.cut_mm += len,
+                MoveKind::Fill | MoveKind::Engrave => s.engrave_mm += len,
+            }
+        }
+        s
+    }
+
+    /// Bounding box of every point the laser head visits (travel included).
+    pub fn bounds(&self) -> Option<BoundingBox> {
+        BoundingBox::from_points(self.segments.iter().flat_map(|s| [&s.from, &s.to]))
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolpathResult {
+    pub toolpath: Toolpath,
+    pub stats: ToolpathStats,
+    pub warnings: Vec<String>,
+}
+
+struct Builder {
+    toolpath: Toolpath,
+    cursor: Point2,
+    rapid: f64,
+}
+
+impl Builder {
+    fn travel_to(&mut self, target: Point2) {
+        if self.cursor.distance_to(&target) > 1e-6 {
+            self.toolpath.segments.push(ToolpathSegment {
+                from: self.cursor,
+                to: target,
+                kind: MoveKind::Travel,
+                feed_mm_min: self.rapid,
+                power_percent: 0.0,
+                air_assist: false,
+            });
+        }
+        self.cursor = target;
+    }
+
+    fn draw(&mut self, from: Point2, to: Point2, kind: MoveKind, layer: &Layer) {
+        self.travel_to(from);
+        self.toolpath.segments.push(ToolpathSegment {
+            from,
+            to,
+            kind,
+            feed_mm_min: layer.speed_mm_min,
+            power_percent: layer.power_percent,
+            air_assist: layer.air_assist,
+        });
+        self.cursor = to;
+    }
+
+    fn path(&mut self, path: &Path2D, kind: MoveKind, layer: &Layer) {
+        if path.points.len() < 2 {
+            return;
+        }
+        for w in path.points.windows(2) {
+            self.draw(w[0], w[1], kind, layer);
+        }
+        if path.closed {
+            let last = path.points[path.points.len() - 1];
+            let first = path.points[0];
+            if last.distance_to(&first) > 1e-9 {
+                self.draw(last, first, kind, layer);
+            }
+        }
+    }
+}
+
+fn world_paths(obj: &WorkspaceObject) -> Vec<Path2D> {
+    match &obj.kind {
+        ObjectKind::Vector(v) => v
+            .paths
+            .iter()
+            .map(|p| p.transformed(&obj.transform))
+            .filter(|p| p.points.len() >= 2 && p.points.iter().all(|q| q.is_finite()))
+            .collect(),
+        ObjectKind::Image(_) => Vec::new(),
+    }
+}
+
+/// Generates the toolpath for planned operations. `image_bytes` maps an image
+/// **asset id** to its encoded (PNG/JPG/BMP) bytes.
+pub fn generate_toolpath(
+    project: &ProjectFile,
+    operations: &[LaserOperation],
+    image_bytes: &HashMap<Uuid, Vec<u8>>,
+) -> Result<ToolpathResult> {
+    let objects: HashMap<Uuid, &WorkspaceObject> =
+        project.objects.iter().map(|o| (o.id, o)).collect();
+    let home = project.machine.machine_to_workspace(Point2::ZERO);
+    let mut b = Builder {
+        toolpath: Toolpath::default(),
+        cursor: home,
+        rapid: RAPID_FEED_MM_MIN.min(project.machine.max_feed_rate_mm_min),
+    };
+    let mut warnings: Vec<String> = Vec::new();
+
+    for op in operations {
+        let layer = project
+            .find_layer(op.layer_id())
+            .ok_or_else(|| ProjectError::LayerNotFound(op.layer_id().to_string()))?;
+        let passes = layer.passes.max(1);
+
+        match op {
+            LaserOperation::Cut {
+                object_ids, params, ..
+            } => {
+                let paths = collect_paths(&objects, object_ids);
+                let mut final_paths: Vec<Path2D> = Vec::new();
+                for (path, depth) in order_paths(paths, params.cut_order, b.cursor) {
+                    if params.kerf_mm > 0.0 && path.closed {
+                        let side = if depth % 2 == 1 {
+                            KerfSide::Inward
+                        } else {
+                            KerfSide::Outward
+                        };
+                        let compensated = kerf_compensate(&path, params.kerf_mm, side)?;
+                        if compensated.is_empty() {
+                            warnings.push(
+                                "A feature smaller than the kerf vanished after kerf compensation and will not be cut."
+                                    .to_string(),
+                            );
+                        }
+                        final_paths.extend(compensated);
+                    } else {
+                        final_paths.push(path);
+                    }
+                }
+                for _ in 0..passes {
+                    for p in &final_paths {
+                        b.path(p, MoveKind::Cut, layer);
+                    }
+                }
+            }
+            LaserOperation::Score {
+                object_ids, params, ..
+            } => {
+                let paths = collect_paths(&objects, object_ids);
+                let ordered: Vec<Path2D> = order_paths(paths, params.cut_order, b.cursor)
+                    .into_iter()
+                    .map(|(p, _)| p)
+                    .collect();
+                for _ in 0..passes {
+                    for p in &ordered {
+                        b.path(p, MoveKind::Score, layer);
+                    }
+                }
+            }
+            LaserOperation::Fill {
+                object_ids, params, ..
+            } => {
+                for id in object_ids {
+                    let Some(obj) = objects.get(id) else { continue };
+                    let closed: Vec<Path2D> = world_paths(obj)
+                        .into_iter()
+                        .filter(|p| p.closed && p.points.len() >= 3)
+                        .collect();
+                    if closed.is_empty() {
+                        warnings.push(format!("'{}' has no closed shapes to fill.", obj.name));
+                        continue;
+                    }
+                    let mut angles = vec![params.angle_deg];
+                    if params.pattern == FillPattern::CrossHatch {
+                        angles.push(params.angle_deg + 90.0);
+                    }
+                    let spacing = params.line_spacing_mm.max(0.01);
+                    let mut rows: Vec<Vec<(Point2, Point2)>> = Vec::new();
+                    for angle in angles {
+                        match scanline_fill(&closed, angle, spacing) {
+                            Some(r) => rows.extend(r),
+                            None => warnings.push(format!(
+                                "Fill of '{}' needs too many lines; increase the line spacing.",
+                                obj.name
+                            )),
+                        }
+                    }
+                    for _ in 0..passes {
+                        for row in &rows {
+                            for (a, z) in row {
+                                b.draw(*a, *z, MoveKind::Fill, layer);
+                            }
+                        }
+                    }
+                }
+            }
+            LaserOperation::Raster {
+                object_ids, params, ..
+            } => {
+                for id in object_ids {
+                    let Some(obj) = objects.get(id) else { continue };
+                    let ObjectKind::Image(image) = &obj.kind else {
+                        continue;
+                    };
+                    let Some(bytes) = image_bytes.get(&image.asset_id) else {
+                        warnings.push(format!(
+                            "Image data for '{}' is missing; it was skipped.",
+                            obj.name
+                        ));
+                        continue;
+                    };
+                    match raster_runs(obj, image, bytes, params) {
+                        Ok(runs) => {
+                            for _ in 0..passes {
+                                for (a, z) in &runs {
+                                    b.draw(*a, *z, MoveKind::Engrave, layer);
+                                }
+                            }
+                        }
+                        Err(e) => warnings.push(format!("Could not engrave '{}': {e}", obj.name)),
+                    }
+                }
+            }
+        }
+
+        if b.toolpath.segments.len() > MAX_SEGMENTS {
+            return Err(ProjectError::TooLarge(format!(
+                "The job needs more than {MAX_SEGMENTS} moves. Lower the raster DPI, raise the fill spacing or split the job."
+            )));
+        }
+    }
+
+    let stats = b.toolpath.stats();
+    Ok(ToolpathResult {
+        toolpath: b.toolpath,
+        stats,
+        warnings,
+    })
+}
+
+fn collect_paths(objects: &HashMap<Uuid, &WorkspaceObject>, ids: &[Uuid]) -> Vec<Path2D> {
+    let mut paths = Vec::new();
+    for id in ids {
+        if let Some(obj) = objects.get(id) {
+            paths.extend(world_paths(obj));
+        }
+    }
+    paths
+}
+
+// ---------------------------------------------------------------------------------------
+// Nesting and ordering
+// ---------------------------------------------------------------------------------------
+
+fn point_in_polygon(p: Point2, polygon: &Path2D) -> bool {
+    let pts = &polygon.points;
+    let n = pts.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (pi, pj) = (pts[i], pts[j]);
+        if (pi.y > p.y) != (pj.y > p.y) && p.x < (pj.x - pi.x) * (p.y - pi.y) / (pj.y - pi.y) + pi.x
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Containment depth of every path: 0 = outer boundary, 1 = a hole in it, 2 = an island in
+/// that hole, and so on. A path is "inside" another when its bounding box fits within the
+/// other's and its first vertex lies inside the other polygon.
+fn nesting_depths(paths: &[Path2D]) -> Vec<u32> {
+    let boxes: Vec<Option<BoundingBox>> = paths.iter().map(|p| p.bounding_box()).collect();
+    (0..paths.len())
+        .map(|i| {
+            let Some(bi) = boxes[i] else { return 0 };
+            let probe = paths[i].points[0];
+            (0..paths.len())
+                .filter(|&j| {
+                    j != i
+                        && paths[j].closed
+                        && paths[j].points.len() >= 3
+                        && boxes[j].map_or(false, |bj| bj.contains_box(&bi))
+                        && point_in_polygon(probe, &paths[j])
+                })
+                .count() as u32
+        })
+        .collect()
+}
+
+fn nearest_neighbor(items: Vec<(Path2D, u32)>, start: Point2) -> Vec<(Path2D, u32)> {
+    let mut remaining = items;
+    let mut out = Vec::with_capacity(remaining.len());
+    let mut cursor = start;
+
+    while !remaining.is_empty() {
+        let mut best = 0usize;
+        let mut best_dist = f64::INFINITY;
+        let mut best_vertex = 0usize;
+        let mut best_reverse = false;
+        for (i, (path, _)) in remaining.iter().enumerate() {
+            if path.points.is_empty() {
+                continue;
+            }
+            if path.closed {
+                for (vi, p) in path.points.iter().enumerate() {
+                    let d = cursor.distance_to(p);
+                    if d < best_dist {
+                        (best_dist, best, best_vertex, best_reverse) = (d, i, vi, false);
+                    }
+                }
+            } else {
+                let d_start = cursor.distance_to(&path.points[0]);
+                let d_end = cursor.distance_to(&path.points[path.points.len() - 1]);
+                if d_start < best_dist {
+                    (best_dist, best, best_vertex, best_reverse) = (d_start, i, 0, false);
+                }
+                if d_end < best_dist {
+                    (best_dist, best, best_vertex, best_reverse) = (d_end, i, 0, true);
+                }
+            }
+        }
+        let (mut path, depth) = remaining.swap_remove(best);
+        if path.points.is_empty() {
+            out.push((path, depth));
+            continue;
+        }
+        if path.closed {
+            path.points.rotate_left(best_vertex);
+        } else if best_reverse {
+            path.points.reverse();
+        }
+        cursor = if path.closed {
+            path.points[0]
+        } else {
+            path.points[path.points.len() - 1]
+        };
+        out.push((path, depth));
+    }
+    out
+}
+
+/// Orders paths for cutting, returning each path with its nesting depth.
+fn order_paths(
+    paths: Vec<Path2D>,
+    strategy: CutOrderStrategy,
+    start: Point2,
+) -> Vec<(Path2D, u32)> {
+    let depths = nesting_depths(&paths);
+    let items: Vec<(Path2D, u32)> = paths.into_iter().zip(depths).collect();
+    match strategy {
+        CutOrderStrategy::AsDrawn => items,
+        CutOrderStrategy::InsideFirst | CutOrderStrategy::OutsideLast => {
+            let mut groups: BTreeMap<u32, Vec<(Path2D, u32)>> = BTreeMap::new();
+            for item in items {
+                groups.entry(item.1).or_default().push(item);
+            }
+            let mut out = Vec::new();
+            let mut cursor = start;
+            // BTreeMap iterates ascending; reverse so the deepest group is cut first.
+            for (_, group) in groups.into_iter().rev() {
+                let ordered = nearest_neighbor(group, cursor);
+                if let Some((last, _)) = ordered.last() {
+                    let end = if last.closed {
+                        last.points.first()
+                    } else {
+                        last.points.last()
+                    };
+                    if let Some(end) = end {
+                        cursor = *end;
+                    }
+                }
+                out.extend(ordered);
+            }
+            out
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Vector fill
+// ---------------------------------------------------------------------------------------
+
+/// Even-odd scanline fill. Returns one row of segments per scan line; odd rows are reversed
+/// so consecutive lines are traversed in alternating directions (serpentine). `None` when
+/// the shape would need more than `MAX_FILL_LINES` lines or has no extent.
+fn scanline_fill(
+    paths: &[Path2D],
+    angle_deg: f64,
+    spacing: f64,
+) -> Option<Vec<Vec<(Point2, Point2)>>> {
+    let to_rotated = Transform2D::rotate_deg(-angle_deg);
+    let from_rotated = Transform2D::rotate_deg(angle_deg);
+    let rotated: Vec<Path2D> = paths.iter().map(|p| p.transformed(&to_rotated)).collect();
+    let bbox = rotated
+        .iter()
+        .filter_map(|p| p.bounding_box())
+        .reduce(|a, b| a.union(&b))?;
+    if ((bbox.height() / spacing).ceil() as usize) + 1 > MAX_FILL_LINES {
+        return None;
+    }
+
+    let mut rows = Vec::new();
+    let mut y = bbox.min.y + spacing / 2.0;
+    let mut index = 0usize;
+    while y <= bbox.max.y {
+        let mut xs: Vec<f64> = Vec::new();
+        for path in &rotated {
+            let pts = &path.points;
+            let n = pts.len();
+            if n < 2 {
+                continue;
+            }
+            for i in 0..n {
+                let (a, b) = (pts[i], pts[(i + 1) % n]);
+                if (a.y <= y && b.y > y) || (b.y <= y && a.y > y) {
+                    let t = (y - a.y) / (b.y - a.y);
+                    xs.push(a.x + t * (b.x - a.x));
+                }
+            }
+        }
+        xs.sort_by(|a, b| a.total_cmp(b));
+        let mut row: Vec<(Point2, Point2)> = Vec::new();
+        let mut i = 0;
+        while i + 1 < xs.len() {
+            row.push((
+                from_rotated.apply(Point2::new(xs[i], y)),
+                from_rotated.apply(Point2::new(xs[i + 1], y)),
+            ));
+            i += 2;
+        }
+        if index % 2 == 1 {
+            row.reverse();
+            for seg in row.iter_mut() {
+                std::mem::swap(&mut seg.0, &mut seg.1);
+            }
+        }
+        if !row.is_empty() {
+            rows.push(row);
+        }
+        y += spacing;
+        index += 1;
+    }
+    Some(rows)
+}
+
+// ---------------------------------------------------------------------------------------
+// Raster engraving
+// ---------------------------------------------------------------------------------------
+
+fn to_raster_dither(d: CommonDither) -> makerlaser_raster::DitherAlgorithm {
+    match d {
+        CommonDither::None => makerlaser_raster::DitherAlgorithm::None,
+        CommonDither::FloydSteinberg => makerlaser_raster::DitherAlgorithm::FloydSteinberg,
+        CommonDither::Jarvis => makerlaser_raster::DitherAlgorithm::Jarvis,
+        CommonDither::Stucki => makerlaser_raster::DitherAlgorithm::Stucki,
+        CommonDither::Atkinson => makerlaser_raster::DitherAlgorithm::Atkinson,
+    }
+}
+
+/// Runs of pixels to burn, as `(start, end)` workspace points in scan order.
+fn raster_runs(
+    obj: &WorkspaceObject,
+    image: &ImageData,
+    bytes: &[u8],
+    params: &RasterOperation,
+) -> Result<Vec<(Point2, Point2)>> {
+    let err = |m: &str| ProjectError::Raster(m.to_string());
+    let bbox = obj
+        .world_bounding_box()
+        .ok_or_else(|| err("the image has no extent"))?;
+    let (w_mm, h_mm) = (bbox.width(), bbox.height());
+    if !(w_mm > 0.0 && h_mm > 0.0) {
+        return Err(err("the image has no area"));
+    }
+    let dpi = params.dpi.max(1) as f64;
+    let cols64 = ((w_mm / 25.4 * dpi).round() as u64).max(1);
+    let rows64 = ((h_mm / 25.4 * dpi).round() as u64).max(1);
+    if cols64 * rows64 > MAX_RASTER_PIXELS {
+        return Err(ProjectError::Raster(format!(
+            "{cols64} x {rows64} pixels is too large; lower the DPI or the image size"
+        )));
+    }
+    let (cols, rows) = (cols64 as u32, rows64 as u32);
+
+    let inverse = obj
+        .transform
+        .inverse()
+        .ok_or_else(|| err("the image transform is degenerate"))?;
+    let source = makerlaser_raster::load_grayscale(bytes)
+        .map_err(|e| ProjectError::Raster(format!("cannot decode the image: {e}")))?;
+    let (nat_w, nat_h) = image.natural_size_mm();
+    let scale_x = obj.transform.a.hypot(obj.transform.b);
+    let scale_y = obj.transform.c.hypot(obj.transform.d);
+
+    // Pre-shrink large sources to roughly the output resolution; sampling a 4000 px photo
+    // down to 300 px with bilinear alone would alias badly.
+    let per_out_x = (source.width() as f64 / (nat_w * scale_x)) / (dpi / 25.4);
+    let per_out_y = (source.height() as f64 / (nat_h * scale_y)) / (dpi / 25.4);
+    let source = if per_out_x > 1.5 || per_out_y > 1.5 {
+        let nw = (source.width() as f64 / per_out_x.max(1.0))
+            .round()
+            .max(1.0) as u32;
+        let nh = (source.height() as f64 / per_out_y.max(1.0))
+            .round()
+            .max(1.0) as u32;
+        makerlaser_raster::resize_grayscale(&source, nw, nh)
+    } else {
+        source
+    };
+    let (sw, sh) = (source.width() as f64, source.height() as f64);
+    let (dx, dy) = (w_mm / cols as f64, h_mm / rows as f64);
+
+    let resampled = makerlaser_raster::resample(&source, cols, rows, |c, r| {
+        let world = Point2::new(
+            bbox.min.x + (c as f64 + 0.5) * dx,
+            bbox.min.y + (r as f64 + 0.5) * dy,
+        );
+        let local = inverse.apply(world);
+        (local.x / nat_w * sw, local.y / nat_h * sh)
+    });
+    let adjusted = makerlaser_raster::Adjustments {
+        brightness: params.brightness,
+        contrast: params.contrast,
+        gamma: params.gamma,
+        invert: params.invert,
+    }
+    .apply(&resampled.image);
+    let dithered = makerlaser_raster::dither(&adjusted, to_raster_dither(params.dither), 128);
+
+    let horizontal = params.direction == ScanDirection::Horizontal;
+    let (n_primary, n_secondary) = if horizontal {
+        (rows, cols)
+    } else {
+        (cols, rows)
+    };
+    let mut out: Vec<(Point2, Point2)> = Vec::new();
+
+    for p in 0..n_primary {
+        let reverse = params.bidirectional && p % 2 == 1;
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        let mut current: Option<(u32, u32)> = None;
+        for s in 0..n_secondary {
+            let (c, r) = if horizontal { (s, p) } else { (p, s) };
+            let idx = r as usize * cols as usize + c as usize;
+            let burn = dithered.get_pixel(c, r).0[0] == 0 && resampled.inside[idx];
+            current = match (burn, current) {
+                (true, Some((first, _))) => Some((first, s)),
+                (true, None) => Some((s, s)),
+                (false, Some(run)) => {
+                    runs.push(run);
+                    None
+                }
+                (false, None) => None,
+            };
+        }
+        if let Some(run) = current {
+            runs.push(run);
+        }
+        if reverse {
+            runs.reverse();
+        }
+        for (first, last) in runs {
+            let (a, z) = if horizontal {
+                let y = bbox.min.y + (p as f64 + 0.5) * dy;
+                (
+                    Point2::new(bbox.min.x + first as f64 * dx, y),
+                    Point2::new(bbox.min.x + (last as f64 + 1.0) * dx, y),
+                )
+            } else {
+                let x = bbox.min.x + (p as f64 + 0.5) * dx;
+                (
+                    Point2::new(x, bbox.min.y + first as f64 * dy),
+                    Point2::new(x, bbox.min.y + (last as f64 + 1.0) * dy),
+                )
+            };
+            out.push(if reverse { (z, a) } else { (a, z) });
+        }
+        if out.len() > MAX_SEGMENTS {
+            return Err(ProjectError::TooLarge(
+                "The raster needs too many moves; lower the DPI.".to_string(),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cam::plan_operations;
+    use makerlaser_common::{ImageFormat, LayerKind, MachineProfile};
+
+    fn square(x: f64, y: f64, s: f64) -> Path2D {
+        Path2D::new(
+            vec![
+                Point2::new(x, y),
+                Point2::new(x + s, y),
+                Point2::new(x + s, y + s),
+                Point2::new(x, y + s),
+            ],
+            true,
+        )
+    }
+
+    fn project_with(kind: LayerKind, paths: Vec<Path2D>) -> ProjectFile {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        let layer = p.layers.iter().find(|l| l.kind == kind).unwrap().id;
+        let mut o = WorkspaceObject::new_vector("o", paths, 0);
+        o.layer_id = Some(layer);
+        p.objects.push(o);
+        p
+    }
+
+    fn generate(p: &ProjectFile) -> ToolpathResult {
+        let plan = plan_operations(p);
+        generate_toolpath(p, &plan.operations, &HashMap::new()).unwrap()
+    }
+
+    fn cut_segments(r: &ToolpathResult) -> Vec<&ToolpathSegment> {
+        r.toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Cut)
+            .collect()
+    }
+
+    // ---- nesting ---------------------------------------------------------------------
+
+    #[test]
+    fn containment_depth_of_nested_squares() {
+        let depths = nesting_depths(&[
+            square(0.0, 0.0, 100.0),
+            square(10.0, 10.0, 50.0),
+            square(20.0, 20.0, 10.0),
+            square(200.0, 0.0, 5.0),
+        ]);
+        assert_eq!(depths, vec![0, 1, 2, 0]);
+    }
+
+    #[test]
+    fn inside_first_cuts_the_hole_before_the_outer_boundary() {
+        // The outer path starts nearest the origin: a naive nearest-neighbour pass would
+        // cut it first. Nesting priority must win.
+        let p = project_with(
+            LayerKind::Cut,
+            vec![square(0.0, 0.0, 100.0), square(40.0, 40.0, 10.0)],
+        );
+        let r = generate(&p);
+        let first_cut = cut_segments(&r)[0];
+        let inside_hole = |q: Point2| q.x >= 40.0 && q.x <= 50.0 && q.y >= 40.0 && q.y <= 50.0;
+        assert!(
+            inside_hole(first_cut.from) && inside_hole(first_cut.to),
+            "{first_cut:?}"
+        );
+    }
+
+    #[test]
+    fn equal_depth_paths_are_still_travel_optimised() {
+        // The head starts at the machine origin, which is workspace (0, 300) for a
+        // bottom-left-origin machine. The square near that corner must be cut first even
+        // though it is listed second.
+        let p = project_with(
+            LayerKind::Cut,
+            vec![square(250.0, 10.0, 5.0), square(2.0, 280.0, 5.0)],
+        );
+        let r = generate(&p);
+        let first = cut_segments(&r)[0];
+        assert!(first.from.x < 10.0 && first.from.y > 270.0, "{first:?}");
+    }
+
+    #[test]
+    fn as_drawn_keeps_the_original_order() {
+        let order = order_paths(
+            vec![square(250.0, 250.0, 5.0), square(2.0, 2.0, 5.0)],
+            CutOrderStrategy::AsDrawn,
+            Point2::ZERO,
+        );
+        assert_eq!(order[0].0.points[0], Point2::new(250.0, 250.0));
+    }
+
+    #[test]
+    fn closed_paths_start_at_their_nearest_vertex() {
+        let out = nearest_neighbor(vec![(square(0.0, 0.0, 10.0), 0)], Point2::new(11.0, 11.0));
+        assert_eq!(out[0].0.points[0], Point2::new(10.0, 10.0));
+        assert_eq!(out[0].0.points.len(), 4);
+    }
+
+    #[test]
+    fn open_paths_are_reversed_when_their_far_end_is_nearer() {
+        let open = Path2D::new(vec![Point2::new(0.0, 0.0), Point2::new(100.0, 0.0)], false);
+        let out = nearest_neighbor(vec![(open, 0)], Point2::new(99.0, 1.0));
+        assert_eq!(out[0].0.points[0], Point2::new(100.0, 0.0));
+    }
+
+    // ---- cutting ---------------------------------------------------------------------
+
+    #[test]
+    fn a_square_is_cut_as_four_segments_after_one_travel() {
+        let p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 20.0)]);
+        let r = generate(&p);
+        assert_eq!(cut_segments(&r).len(), 4);
+        assert_eq!(r.toolpath.segments[0].kind, MoveKind::Travel);
+        assert!((r.stats.cut_mm - 80.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn passes_repeat_the_whole_operation_not_each_path() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 10.0), square(50.0, 10.0, 10.0)],
+        );
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .passes = 2;
+        let r = generate(&p);
+        let cuts = cut_segments(&r);
+        assert_eq!(cuts.len(), 16);
+        // First pass visits both squares before the second pass starts: segment 4 (the
+        // first of the second square) must lie in the other square.
+        let in_square = |s: &ToolpathSegment, x0: f64| s.from.x >= x0 && s.from.x <= x0 + 10.0;
+        assert!(in_square(cuts[0], 10.0) != in_square(cuts[4], 10.0));
+    }
+
+    #[test]
+    fn kerf_grows_the_outer_boundary_and_shrinks_the_hole() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(0.0, 0.0, 100.0), square(40.0, 40.0, 20.0)],
+        );
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .kerf_mm = 1.0;
+        let r = generate(&p);
+        let segs = cut_segments(&r);
+        let xs: Vec<f64> = segs.iter().flat_map(|s| [s.from.x, s.to.x]).collect();
+        let (min, max) = xs
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        // Outer boundary grew by 0.5 mm each side; the hole shrank by 0.5 mm each side.
+        assert!(min < -0.4 && max > 100.4, "min {min} max {max}");
+        let hole_xs: Vec<f64> = xs
+            .iter()
+            .copied()
+            .filter(|x| *x > 30.0 && *x < 70.0)
+            .collect();
+        let (hmin, hmax) = hole_xs
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        assert!(hmin > 40.4 && hmax < 59.6, "hole x range {hmin}..{hmax}");
+    }
+
+    #[test]
+    fn a_hole_smaller_than_the_kerf_produces_a_warning_not_a_failure() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(0.0, 0.0, 100.0), square(50.0, 50.0, 0.2)],
+        );
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .kerf_mm = 1.0;
+        let r = generate(&p);
+        assert!(r.warnings.iter().any(|w| w.contains("kerf")));
+    }
+
+    #[test]
+    fn score_layers_emit_score_moves_in_the_layer_s_power() {
+        let p = project_with(LayerKind::Score, vec![square(10.0, 10.0, 10.0)]);
+        let r = generate(&p);
+        let scores: Vec<_> = r
+            .toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Score)
+            .collect();
+        assert_eq!(scores.len(), 4);
+        assert_eq!(scores[0].power_percent, 15.0);
+    }
+
+    // ---- fill ------------------------------------------------------------------------
+
+    #[test]
+    fn fill_lines_stay_inside_the_shape_and_alternate_direction() {
+        let rows = scanline_fill(&[square(0.0, 0.0, 10.0)], 0.0, 1.0).unwrap();
+        assert_eq!(rows.len(), 10);
+        for row in &rows {
+            for (a, z) in row {
+                assert!(a.x >= -1e-9 && a.x <= 10.0 + 1e-9 && z.x >= -1e-9 && z.x <= 10.0 + 1e-9);
+            }
+        }
+        assert!(rows[0][0].0.x < rows[0][0].1.x, "row 0 runs left to right");
+        assert!(rows[1][0].0.x > rows[1][0].1.x, "row 1 runs right to left");
+    }
+
+    #[test]
+    fn fill_respects_holes_by_the_even_odd_rule() {
+        let rows =
+            scanline_fill(&[square(0.0, 0.0, 10.0), square(4.0, 4.0, 2.0)], 0.0, 1.0).unwrap();
+        // The scan line at y = 5.5 crosses the hole: two segments, not one.
+        let crossing = rows.iter().find(|r| (r[0].0.y - 5.5).abs() < 1e-9).unwrap();
+        assert_eq!(crossing.len(), 2);
+    }
+
+    #[test]
+    fn rotated_fill_keeps_every_point_inside_the_shape() {
+        let shape = square(0.0, 0.0, 10.0);
+        for (a, z) in scanline_fill(std::slice::from_ref(&shape), 45.0, 1.0)
+            .unwrap()
+            .into_iter()
+            .flatten()
+        {
+            for q in [a, z] {
+                assert!(q.x >= -1e-6 && q.x <= 10.0 + 1e-6 && q.y >= -1e-6 && q.y <= 10.0 + 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn absurdly_dense_fills_are_refused() {
+        assert!(scanline_fill(&[square(0.0, 0.0, 300.0)], 0.0, 0.0001).is_none());
+    }
+
+    #[test]
+    fn a_fill_layer_produces_fill_moves_and_cross_hatch_doubles_them() {
+        let mut p = project_with(LayerKind::Fill, vec![square(10.0, 10.0, 10.0)]);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .line_spacing_mm = 1.0;
+        let single = generate(&p)
+            .toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+            .count();
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .cross_hatch = true;
+        let double = generate(&p)
+            .toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+            .count();
+        assert_eq!(single, 10);
+        assert_eq!(double, 20);
+    }
+
+    // ---- raster ----------------------------------------------------------------------
+
+    /// 4 x 2 px image at 254 dpi (0.4 x 0.2 mm), engraved at 254 dpi: one output pixel per
+    /// source pixel, 0.1 mm each.
+    fn raster_project(
+        rows: [[u8; 4]; 2],
+        bidirectional: bool,
+    ) -> (ProjectFile, HashMap<Uuid, Vec<u8>>) {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        let asset = Uuid::new_v4();
+        let img = ImageData {
+            asset_id: asset,
+            format: ImageFormat::Png,
+            source_path: None,
+            width_px: 4,
+            height_px: 2,
+            dpi: 254.0,
+        };
+        let mut o = WorkspaceObject::new_image("img", img, 0);
+        let layer = p
+            .layers
+            .iter()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap();
+        o.layer_id = Some(layer.id);
+        p.objects.push(o);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap();
+        layer.raster.dpi = 254;
+        layer.raster.dither = makerlaser_common::DitherAlgorithm::None;
+        layer.raster.bidirectional = bidirectional;
+
+        let gray =
+            image::GrayImage::from_fn(4, 2, |x, y| image::Luma([rows[y as usize][x as usize]]));
+        let mut bytes = HashMap::new();
+        bytes.insert(asset, makerlaser_raster::encode_png(&gray).unwrap());
+        (p, bytes)
+    }
+
+    fn engrave(p: &ProjectFile, bytes: &HashMap<Uuid, Vec<u8>>) -> Vec<ToolpathSegment> {
+        let plan = plan_operations(p);
+        generate_toolpath(p, &plan.operations, bytes)
+            .unwrap()
+            .toolpath
+            .segments
+            .into_iter()
+            .filter(|s| s.kind == MoveKind::Engrave)
+            .collect()
+    }
+
+    #[test]
+    fn raster_runs_cover_exactly_the_black_pixels() {
+        // Row 0: black black white black; row 1: all white.
+        let (p, bytes) = raster_project([[0, 0, 255, 0], [255; 4]], false);
+        let segs = engrave(&p, &bytes);
+        assert_eq!(segs.len(), 2, "{segs:?}");
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert!(
+            near(segs[0].from.x, 0.0) && near(segs[0].to.x, 0.2),
+            "{:?}",
+            segs[0]
+        );
+        assert!(
+            near(segs[1].from.x, 0.3) && near(segs[1].to.x, 0.4),
+            "{:?}",
+            segs[1]
+        );
+        assert!(near(segs[0].from.y, 0.05), "row centre y");
+    }
+
+    #[test]
+    fn bidirectional_scanning_reverses_every_second_row() {
+        let (p, bytes) = raster_project([[0, 0, 0, 0], [0, 0, 0, 0]], true);
+        let segs = engrave(&p, &bytes);
+        assert_eq!(segs.len(), 2);
+        assert!(segs[0].from.x < segs[0].to.x, "row 0 left to right");
+        assert!(segs[1].from.x > segs[1].to.x, "row 1 right to left");
+        let (p, bytes) = raster_project([[0, 0, 0, 0], [0, 0, 0, 0]], false);
+        let segs = engrave(&p, &bytes);
+        assert!(
+            segs[1].from.x < segs[1].to.x,
+            "unidirectional keeps one direction"
+        );
+    }
+
+    #[test]
+    fn a_rotated_image_is_engraved_through_its_transform() {
+        // Mirror the image horizontally via a negative X scale: the burn must appear on
+        // the opposite side of the object's bounding box.
+        let (mut p, bytes) = raster_project([[0, 255, 255, 255], [255; 4]], false);
+        let mut t = Transform2D::scale(-1.0, 1.0);
+        t.e = 0.4;
+        p.objects[0].transform = t;
+        let segs = engrave(&p, &bytes);
+        assert_eq!(segs.len(), 1);
+        assert!(
+            segs[0].from.x.min(segs[0].to.x) > 0.29,
+            "burn moved to the right edge: {:?}",
+            segs[0]
+        );
+    }
+
+    #[test]
+    fn missing_image_data_is_a_warning_not_a_crash() {
+        let (p, _) = raster_project([[0; 4], [0; 4]], false);
+        let plan = plan_operations(&p);
+        let r = generate_toolpath(&p, &plan.operations, &HashMap::new()).unwrap();
+        assert!(r.toolpath.segments.is_empty());
+        assert!(r.warnings.iter().any(|w| w.contains("missing")));
+    }
+
+    #[test]
+    fn engraving_precedes_cutting_in_the_toolpath() {
+        let (mut p, bytes) = raster_project([[0; 4], [0; 4]], false);
+        let cut = p
+            .layers
+            .iter()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .id;
+        let mut o = WorkspaceObject::new_vector("sq", vec![square(10.0, 10.0, 5.0)], 1);
+        o.layer_id = Some(cut);
+        p.objects.push(o);
+        let plan = plan_operations(&p);
+        let r = generate_toolpath(&p, &plan.operations, &bytes).unwrap();
+        let first_engrave = r
+            .toolpath
+            .segments
+            .iter()
+            .position(|s| s.kind == MoveKind::Engrave)
+            .unwrap();
+        let first_cut = r
+            .toolpath
+            .segments
+            .iter()
+            .position(|s| s.kind == MoveKind::Cut)
+            .unwrap();
+        assert!(first_engrave < first_cut);
+    }
+
+    // ---- general ---------------------------------------------------------------------
+
+    #[test]
+    fn travel_starts_from_the_machine_origin_in_workspace_terms() {
+        let p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 10.0)]);
+        let r = generate(&p);
+        // BottomLeft origin on a 300 mm bed is workspace (0, 300).
+        assert_eq!(r.toolpath.segments[0].from, Point2::new(0.0, 300.0));
+    }
+}

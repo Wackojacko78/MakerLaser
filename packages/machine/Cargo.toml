@@ -1,0 +1,14 @@
+[package]
+name = "makerlaser-machine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Machine layer: GRBL 1.1 serial controller with character-counting streaming, plus an offline simulator."
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serialport = "4"

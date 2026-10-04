@@ -1,0 +1,22 @@
+[package]
+name = "makerlaser-project"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CAM engine: operation planning, toolpath generation, GRBL G-code, safety checks and the .mlp project format."
+
+[dependencies]
+makerlaser-common.workspace = true
+makerlaser-geometry.workspace = true
+makerlaser-raster.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+log.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

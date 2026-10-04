@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "MakerLaser main window: core APIs plus native open/save/confirm dialogs. All file access happens in Rust on paths the user explicitly picks or drops; the webview itself has no filesystem permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}

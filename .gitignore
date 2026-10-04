@@ -1,0 +1,28 @@
+# Rust build output (Cargo.lock IS committed: this is an application)
+/target
+**/target
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Tauri generated
+apps/rust-core/gen/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and local files
+*.log
+verification.log
+.env
+.env.local
+*.mlp.tmp

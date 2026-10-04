@@ -1,0 +1,14 @@
+[package]
+name = "makerlaser-geometry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Geometry kernel: Clipper2 boolean ops and offsetting, curve flattening, path joining, SVG and DXF import."
+
+[dependencies]
+makerlaser-common.workspace = true
+thiserror.workspace = true
+clipper2 = "0.6"
+roxmltree = "0.20"

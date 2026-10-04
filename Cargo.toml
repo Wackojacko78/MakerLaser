@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/rust-core",
+    "packages/common",
+    "packages/geometry",
+    "packages/raster",
+    "packages/machine",
+    "packages/project",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# clipper2 0.6 uses edition 2024 (Rust 1.85+); the latest tauri-plugin-dialog asks for
+# a newer toolchain still, so run `rustup update stable` before building.
+rust-version = "1.85"
+authors = ["MakerLaser Contributors"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/makerlaser/makerlaser"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+
+makerlaser-common = { path = "packages/common" }
+makerlaser-geometry = { path = "packages/geometry" }
+makerlaser-raster = { path = "packages/raster" }
+makerlaser-machine = { path = "packages/machine" }
+makerlaser-project = { path = "packages/project" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+# NOTE: panic = "abort" is deliberately NOT set. A panic on a job thread must not
+# take the whole process (and the stop controls) down while a laser may be firing.
+
+[profile.dev.package."*"]
+opt-level = 2
