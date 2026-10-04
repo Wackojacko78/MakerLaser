@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { PreflightDialog } from '@/components/PreflightDialog';
 import { frameFlow, startJobFlow, stopFlow } from '@/lib/actions';
@@ -34,7 +35,54 @@ function startBlocker(args: {
   return null;
 }
 
+const CONSOLE_MIN = 236; // the old fixed height: never smaller than the controls need
+const CONSOLE_KEY = 'makerlaser.consoleHeight';
+const clampConsole = (h: number) =>
+  Math.min(Math.max(CONSOLE_MIN, Math.round(window.innerHeight * 0.7)), Math.max(CONSOLE_MIN, Math.round(h)));
+const applyConsoleHeight = (h: number) => document.documentElement.style.setProperty('--console-h', `${h}px`);
+
+/** Drag-to-resize for the bottom console. The height is a CSS variable, remembered between sessions. */
+function useConsoleResize() {
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(CONSOLE_KEY));
+    if (saved > 0) applyConsoleHeight(clampConsole(saved));
+    const onWindowResize = () => {
+      const cur = parseFloat(document.documentElement.style.getPropertyValue('--console-h'));
+      if (cur > 0) applyConsoleHeight(clampConsole(cur));
+    };
+    window.addEventListener('resize', onWindowResize);
+    return () => window.removeEventListener('resize', onWindowResize);
+  }, []);
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const footer = handle.parentElement as HTMLElement;
+    const startY = e.clientY;
+    const startH = footer.getBoundingClientRect().height;
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => applyConsoleHeight(clampConsole(startH + (startY - ev.clientY)));
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      localStorage.setItem(CONSOLE_KEY, String(Math.round(footer.getBoundingClientRect().height)));
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  };
+
+  const reset = () => {
+    applyConsoleHeight(CONSOLE_MIN);
+    localStorage.removeItem(CONSOLE_KEY);
+  };
+
+  return { onPointerDown, reset };
+}
+
 export function MachineConsole() {
+  const resize = useConsoleResize();
   const machine = useMachineStore();
   const job = useJobStore();
   const revision = useProjectStore((s) => s.revision);
@@ -128,6 +176,14 @@ export function MachineConsole() {
 
   return (
     <footer className="console">
+      <div
+        className="console-resize"
+        role="separator"
+        aria-orientation="horizontal"
+        title="Drag to resize · double-click to reset"
+        onPointerDown={resize.onPointerDown}
+        onDoubleClick={resize.reset}
+      />
       <div className="console-controls">
         {/* ---- connection ---- */}
         <div className="block">

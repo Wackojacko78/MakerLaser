@@ -38,7 +38,7 @@ h4 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spa
 .spacer { flex: 1; }
 
 /* layout */
-.app { height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr) 236px; }
+.app { height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr) var(--console-h, 236px); }
 .body { min-height: 0; display: grid; grid-template-columns: 74px minmax(0, 1fr) 340px; }
 
 /* toolbar */
@@ -104,6 +104,9 @@ button.mini { padding: 1px 6px; font-size: 12px; }
 
 /* console */
 .console { background: #0e1822; border-top: 1px solid var(--line); display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; position: relative; }
+.console-resize { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: ns-resize; z-index: 5; touch-action: none; }
+.console-resize::after { content: ''; position: absolute; left: 50%; top: 2px; width: 48px; height: 3px; margin-left: -24px; border-radius: 2px; background: var(--line); }
+.console-resize:hover::after, .console-resize:active::after { background: var(--accent); }
 .console-controls { display: grid; grid-template-columns: 1.15fr 1fr 1.1fr 1fr; gap: 14px; padding: 8px 12px 4px; }
 .block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .block .row { display: flex; gap: 5px; align-items: center; }
