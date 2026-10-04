@@ -39,7 +39,7 @@ h4 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spa
 
 /* layout */
 .app { height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr) var(--console-h, 236px); }
-.body { min-height: 0; display: grid; grid-template-columns: 74px minmax(0, 1fr) 340px; }
+.body { position: relative; min-height: 0; display: grid; grid-template-columns: 74px minmax(0, 1fr) var(--right-w, 340px); }
 
 /* toolbar */
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -70,6 +70,11 @@ button.mini { padding: 1px 6px; font-size: 12px; }
 /* canvas */
 .workspace { position: relative; min-width: 0; min-height: 0; background: #070d12; overflow: hidden; }
 .canvas-hint { position: absolute; left: 10px; bottom: 8px; background: #0c151dcc; padding: 4px 8px; border-radius: 5px; color: var(--muted); font-size: 11px; pointer-events: none; }
+
+/* drag handle on the left edge of the right panel */
+.panel-resize { position: absolute; top: 0; bottom: 0; right: calc(var(--right-w, 340px) - 3px); width: 7px; cursor: ew-resize; z-index: 5; touch-action: none; }
+.panel-resize::after { content: ''; position: absolute; top: 50%; left: 2px; height: 48px; width: 3px; margin-top: -24px; border-radius: 2px; background: var(--line); }
+.panel-resize:hover::after, .panel-resize:active::after { background: var(--accent); }
 
 /* right panels */
 .right { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; }
