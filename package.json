@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "description": "MakerLaser: laser engraving and cutting software.",
-  "workspaces": ["apps/desktop-ui"],
+  "workspaces": [
+    "apps/desktop-ui"
+  ],
   "scripts": {
     "dev": "node scripts/tauri.mjs dev",
     "build": "node scripts/tauri.mjs build",
@@ -24,5 +26,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "overrides": {
+    "vite": "7.3.6"
   }
 }
