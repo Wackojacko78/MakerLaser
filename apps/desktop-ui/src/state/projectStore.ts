@@ -1,6 +1,7 @@
 ﻿import { create } from 'zustand';
 import { api } from '@/lib/tauri';
 import { rotateAbout, scaleAbout, translation, chain, worldBounds } from '@/lib/transform';
+import { TEST_PREFIX, type TestGridResult } from '@/lib/testGrid';
 import type { ProjectFile, Transform2D, UUID, WorkspaceObject } from '@/types/domain';
 
 const HISTORY_LIMIT = 100;
@@ -44,6 +45,10 @@ interface ProjectState {
   scaleSelectedAbout: (sx: number, sy: number) => void;
   rotateSelected: (deg: number) => void;
   removeSelected: () => void;
+  /** Adds a generated test grid (replacing any earlier one) as ONE undo step. */
+  addTestGrid: (grid: Pick<TestGridResult, 'layers' | 'objects'>) => void;
+  /** Removes the test grid layers and their squares. Returns how many layers were removed. */
+  removeTestGrid: () => number;
   duplicateSelected: () => void;
   undo: () => void;
   redo: () => void;
@@ -205,6 +210,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ selected: [] });
   },
 
+  addTestGrid: (grid) => {
+    get().mutate((p) => {
+      const old = new Set(p.layers.filter((l) => l.name.startsWith(TEST_PREFIX)).map((l) => l.id));
+      if (old.size > 0) {
+        p.layers = p.layers.filter((l) => !old.has(l.id));
+        p.objects = p.objects.filter((o) => o.layer_id === null || !old.has(o.layer_id));
+      }
+      p.layers.push(...grid.layers.map((l) => ({ ...l, raster: { ...l.raster } })));
+      p.objects.push(...grid.objects.map((o) => ({ ...o, transform: { ...o.transform } })));
+    });
+    set({ selected: [] });
+  },
+  removeTestGrid: () => {
+    const project = get().project;
+    if (!project) return 0;
+    const old = new Set(project.layers.filter((l) => l.name.startsWith(TEST_PREFIX)).map((l) => l.id));
+    if (old.size === 0) return 0;
+    get().mutate((p) => {
+      p.layers = p.layers.filter((l) => !old.has(l.id));
+      p.objects = p.objects.filter((o) => o.layer_id === null || !old.has(o.layer_id));
+    });
+    set({ selected: [] });
+    return old.size;
+  },
   duplicateSelected: () => {
     const ids = new Set(get().selected);
     if (ids.size === 0) return;
