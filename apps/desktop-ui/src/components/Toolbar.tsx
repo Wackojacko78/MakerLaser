@@ -12,6 +12,7 @@ import { useProjectStore } from '@/state/projectStore';
 import { useViewStore } from '@/state/viewStore';
 import { MachineSettingsDialog } from '@/components/MachineSettingsDialog';
 import { TestGridDialog } from '@/components/TestGridDialog';
+import { ArrangeDialog } from '@/components/ArrangeDialog';
 import { TextDialog } from '@/components/TextDialog';
 
 export function Toolbar() {
@@ -33,6 +34,7 @@ export function Toolbar() {
   const setShowPreview = useJobStore((s) => s.setShowPreview);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
 
   if (!project) return null;
@@ -62,6 +64,7 @@ export function Toolbar() {
       <div className="group">
         <button onClick={requestFit} title="Fit the bed to the window">Fit</button>
         <button onClick={() => setTextOpen(true)} title="Add text from any installed font">Text…</button>
+        <button onClick={() => setArrangeOpen(true)} title="Align, space and repeat the selected objects">Arrange…</button>
         <button onClick={() => setGridOpen(true)} title="Add a speed x power material test grid">Test grid…</button>
         <button onClick={() => setSettingsOpen(true)} title="Machine, bed size and view settings">Machine…</button>
       </div>
@@ -99,6 +102,7 @@ export function Toolbar() {
 
       {settingsOpen && <MachineSettingsDialog onClose={() => setSettingsOpen(false)} />}
       {gridOpen && <TestGridDialog onClose={() => setGridOpen(false)} />}
+      {arrangeOpen && <ArrangeDialog onClose={() => setArrangeOpen(false)} />}
       {textOpen && <TextDialog onClose={() => setTextOpen(false)} />}
     </header>
   );

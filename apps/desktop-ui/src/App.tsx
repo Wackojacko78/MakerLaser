@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { WorkspaceCanvas } from '@/canvas/WorkspaceCanvas';
 import { LayersPanel } from '@/components/LayersPanel';
 import { MachineConsole } from '@/components/MachineConsole';
+import { CloseGuard } from '@/components/CloseGuard';
 import { MaterialsPanel } from '@/components/MaterialsPanel';
 import { PropertiesPanel } from '@/components/PropertiesPanel';
 import { ToolsPanel } from '@/components/ToolsPanel';
@@ -111,6 +112,7 @@ export default function App() {
         </aside>
       </div>
       <MachineConsole />
+      <CloseGuard />
       {notice && (
         <div className={`notice ${notice.kind}`} role="status" onClick={dismiss}>
           {notice.text}
