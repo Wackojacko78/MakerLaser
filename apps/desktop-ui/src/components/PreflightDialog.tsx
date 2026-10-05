@@ -48,6 +48,7 @@ export function PreflightDialog({ onCancel, onConfirm }: Props) {
             <tr><th>Engrave / fill length</th><td>{formatLength(result.stats.engrave_mm)}</td></tr>
             <tr><th>Travel (laser off)</th><td>{formatLength(result.stats.travel_mm)}</td></tr>
             <tr><th>G-code lines</th><td>{result.line_count.toLocaleString()}</td></tr>
+            <tr><th>Machine</th><td>{project.machine.name}</td></tr>
             <tr><th>Bed</th><td>{project.machine.bed_width_mm} × {project.machine.bed_height_mm} mm</td></tr>
           </tbody>
         </table>

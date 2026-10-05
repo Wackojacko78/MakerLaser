@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
+import { machineSummary } from '@/lib/selectionInfo';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import {
   MAX_SAVED_MACHINES,
@@ -125,6 +126,9 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Machine settings" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Machine &amp; view</h2>
+        <p className="hint" style={{ margin: '0 0 10px' }}>
+          Selected machine: <b>{m.name}</b> ({machineSummary(m)})
+        </p>
 
         <div className="grid wide">
           <label>Preset</label>
@@ -134,7 +138,9 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
               const preset = e.target.value.startsWith(SAVED_PREFIX)
                 ? saved.find((s) => s.name === e.target.value.slice(SAVED_PREFIX.length))
                 : presets.find((p) => p.id === e.target.value);
-              if (preset) patch('preset', (mm) => Object.assign(mm, { ...preset, id: mm.id }));
+              if (!preset) return;
+              patch('preset', (mm) => Object.assign(mm, { ...preset, id: mm.id }));
+              notify('info', `Machine set to "${preset.name}": ${machineSummary(preset)}.`);
             }}
           >
             <option value="">Load a machine preset…</option>

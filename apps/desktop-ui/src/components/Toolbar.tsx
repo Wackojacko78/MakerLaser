@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { machineSummary } from '@/lib/selectionInfo';
 import {
   generateFlow,
   importFromDialog,
@@ -66,6 +67,13 @@ export function Toolbar() {
       </div>
 
       <span className="spacer" />
+      <button
+        onClick={() => setSettingsOpen(true)}
+        title={`Machine: ${project.machine.name}\n${machineSummary(project.machine)}\nClick to change the machine`}
+        style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderColor: 'var(--accent)' }}
+      >
+        Machine: <b>{project.machine.name}</b>
+      </button>
 
       <input
         className="project-name"

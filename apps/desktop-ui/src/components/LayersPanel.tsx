@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
+import { findMatchingPreset, presetAppliedMessage } from '@/lib/selectionInfo';
 import { api } from '@/lib/tauri';
+import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
 import type { DitherAlgorithm, Layer, RasterOperation } from '@/types/domain';
 
@@ -50,6 +52,7 @@ function LayerCard({ layer }: { layer: Layer }) {
   const mutate = useProjectStore((s) => s.mutate);
   const selected = useProjectStore((s) => s.selected);
   const [presetName, setPresetName] = useState('');
+  const notify = useNoticeStore((s) => s.show);
 
   if (!project) return null;
 
@@ -65,6 +68,9 @@ function LayerCard({ layer }: { layer: Layer }) {
 
   const objects = project.objects.filter((o) => o.layer_id === layer.id);
   const presets = project.materials.presets.filter((p) => p.for_layer_kind === layer.kind);
+  const airSupported = project.machine.air_assist_supported;
+  // The preset whose settings this layer has right now. It changes the moment a value is edited.
+  const activePreset = findMatchingPreset(layer, presets, airSupported);
   const firstImage = objects.find((o) => o.kind.type === 'image');
   const assign = () =>
     mutate((p) => {
@@ -176,10 +182,11 @@ function LayerCard({ layer }: { layer: Layer }) {
 
       <div className="preset-row">
         <select
-          value=""
+          value={activePreset?.id ?? ''}
           onChange={(e) => {
             const preset = presets.find((p) => p.id === e.target.value);
             if (!preset) return;
+            notify('info', presetAppliedMessage(preset, layer.name, airSupported));
             mutate((p) => {
               const l = p.layers.find((x) => x.id === layer.id);
               if (!l) return;
@@ -190,12 +197,15 @@ function LayerCard({ layer }: { layer: Layer }) {
             });
           }}
         >
-          <option value="">Apply material preset…</option>
+          <option value="">{activePreset ? 'Choose another preset\u2026' : presets.length > 0 ? 'Custom settings: choose a preset\u2026' : 'No presets for this layer type'}</option>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
       </div>
+      <p className="hint" style={{ margin: '2px 0 4px', color: activePreset ? 'var(--ok)' : undefined }}>
+        {activePreset ? `Preset in use: ${activePreset.name}` : 'Custom settings (no preset applied)'}
+      </p>
       <div className="preset-row">
         <input
           placeholder="Save these settings as a preset…"
