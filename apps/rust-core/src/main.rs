@@ -7,7 +7,7 @@
 mod commands;
 mod state;
 
-use commands::{gcode_cmds, import_cmds, machine_cmds, material_cmds, project_cmds};
+use commands::{config_cmds, gcode_cmds, import_cmds, machine_cmds, material_cmds, project_cmds};
 
 fn main() {
     env_logger::init();
@@ -43,6 +43,8 @@ fn main() {
             machine_cmds::machine_stop,
             material_cmds::import_materials,
             material_cmds::export_materials,
+            config_cmds::read_config_file,
+            config_cmds::write_config_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MakerLaser");

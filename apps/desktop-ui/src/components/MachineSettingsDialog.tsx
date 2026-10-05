@@ -1,5 +1,20 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import {
+  MAX_SAVED_MACHINES,
+  machineToEntry,
+  parseMachineFile,
+  removeMachine,
+  sameName,
+  serializeMachineFile,
+  upsertMachine,
+  validateMachineEntry,
+  type MachineEntry,
+} from '@/lib/configFormat';
+import { errorMessage } from '@/lib/format';
+import { loadSavedMachines, storeSavedMachines } from '@/lib/savedMachines';
+import { useNoticeStore } from '@/state/noticeStore';
 import { api } from '@/lib/tauri';
 import { useProjectStore } from '@/state/projectStore';
 import type { MachineOrigin, MachineProfile } from '@/types/domain';
@@ -11,10 +26,15 @@ const ORIGINS: Array<[MachineOrigin, string]> = [
   ['top_right', 'Top-right'],
 ];
 
+const MACHINE_FILTER = [{ name: 'MakerLaser machine', extensions: ['json'] }];
+const SAVED_PREFIX = 'saved:';
+
 export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
   const project = useProjectStore((s) => s.project);
   const mutate = useProjectStore((s) => s.mutate);
   const [presets, setPresets] = useState<MachineProfile[]>([]);
+  const [saved, setSaved] = useState<MachineEntry[]>(() => loadSavedMachines());
+  const notify = useNoticeStore((s) => s.show);
 
   useEffect(() => {
     api.machinePresets().then(setPresets).catch(() => setPresets([]));
@@ -24,6 +44,82 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
   const m = project.machine;
   const patch = (key: string, fn: (m: MachineProfile) => void) =>
     mutate((p) => fn(p.machine), `machine-${key}`);
+
+  /** Keeps `entry` in the "Saved by you" list, replacing a saved preset with the same name. */
+  const remember = (entry: MachineEntry): 'new' | 'updated' | 'builtin' | 'full' => {
+    if (presets.some((p) => sameName(p.name, entry.name))) return 'builtin';
+    const existed = saved.some((s) => sameName(s.name, entry.name));
+    const next = upsertMachine(saved, entry);
+    if (!next) return 'full';
+    setSaved(next);
+    storeSavedMachines(next);
+    return existed ? 'updated' : 'new';
+  };
+
+  const saveCurrent = () => {
+    const { entry, problems } = validateMachineEntry(machineToEntry(m));
+    if (!entry) {
+      notify('error', `Cannot save these settings: ${problems.join('; ')}.`);
+      return;
+    }
+    const result = remember(entry);
+    if (result === 'builtin') {
+      notify('warning', `"${entry.name}" is the name of a built-in preset. Change the Name first, then save.`);
+    } else if (result === 'full') {
+      notify('error', `You can keep up to ${MAX_SAVED_MACHINES} saved presets. Delete one first.`);
+    } else if (result === 'updated') {
+      notify('info', `Updated your saved preset "${entry.name}".`);
+    } else {
+      notify('info', `Saved "${entry.name}". It is in the preset list under "Saved by you".`);
+    }
+  };
+
+  const deleteSaved = () => {
+    const name = m.name.trim();
+    if (!saved.some((s) => sameName(s.name, name))) {
+      notify('info', `There is no saved preset called "${name}". Load one from the preset list first, then press Delete.`);
+      return;
+    }
+    const next = removeMachine(saved, name);
+    setSaved(next);
+    storeSavedMachines(next);
+    notify('info', `Deleted the saved preset "${name}". The settings in use are unchanged.`);
+  };
+
+  const exportMachine = async () => {
+    try {
+      const { entry, problems } = validateMachineEntry(machineToEntry(m));
+      if (!entry) throw new Error(problems.join('; '));
+      const base = entry.name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'machine';
+      const path = await save({ defaultPath: `${base}.machine.json`, filters: MACHINE_FILTER });
+      if (!path) return;
+      await api.writeConfigFile(path, serializeMachineFile(entry));
+      notify('info', `Exported "${entry.name}".`);
+    } catch (e) {
+      notify('error', `Export failed: ${errorMessage(e)}`);
+    }
+  };
+
+  const importMachine = async () => {
+    try {
+      const path = await open({ multiple: false, directory: false, filters: MACHINE_FILTER });
+      if (typeof path !== 'string') return;
+      const { machine } = parseMachineFile(await api.readConfigFile(path));
+      patch('import', (mm) => Object.assign(mm, machine, { id: mm.id }));
+      const result = remember(machine);
+      if (result === 'new') {
+        notify('info', `Loaded "${machine.name}" and added it to your saved presets.`);
+      } else if (result === 'updated') {
+        notify('info', `Loaded "${machine.name}" and updated your saved preset of the same name.`);
+      } else if (result === 'builtin') {
+        notify('warning', `Loaded "${machine.name}". It was not added to your saved presets because that name belongs to a built-in preset.`);
+      } else {
+        notify('warning', `Loaded "${machine.name}". Your saved list is full, so it was not added.`);
+      }
+    } catch (e) {
+      notify('error', `Import failed: ${errorMessage(e)}`);
+    }
+  };
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -35,7 +131,9 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
           <select
             value=""
             onChange={(e) => {
-              const preset = presets.find((p) => p.id === e.target.value);
+              const preset = e.target.value.startsWith(SAVED_PREFIX)
+                ? saved.find((s) => s.name === e.target.value.slice(SAVED_PREFIX.length))
+                : presets.find((p) => p.id === e.target.value);
               if (preset) patch('preset', (mm) => Object.assign(mm, { ...preset, id: mm.id }));
             }}
           >
@@ -43,6 +141,13 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
             {presets.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
+            {saved.length > 0 && (
+              <optgroup label="Saved by you">
+                {saved.map((s) => (
+                  <option key={s.name} value={`${SAVED_PREFIX}${s.name}`}>{s.name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
 
           <label>Name</label>
@@ -69,6 +174,16 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
 
           <label>Air assist fitted</label>
           <input type="checkbox" checked={m.air_assist_supported} onChange={(e) => patch('air', (mm) => (mm.air_assist_supported = e.target.checked))} />
+          <label>Saved presets</label>
+          <div className="preset-row" style={{ flexWrap: 'wrap' }}>
+            <button onClick={saveCurrent} title="Keep these machine settings under the Name above, so they appear in the preset list">Save as preset</button>
+            <button onClick={deleteSaved} title="Delete the saved preset that has the Name above">Delete preset</button>
+          </div>
+          <label>Machine file</label>
+          <div className="preset-row" style={{ flexWrap: 'wrap' }}>
+            <button onClick={() => void importMachine()} title="Load machine settings from a .json file">Import…</button>
+            <button onClick={() => void exportMachine()} title="Save these machine settings to a .json file to share or back up">Export…</button>
+          </div>
         </div>
 
         <p className="hint">

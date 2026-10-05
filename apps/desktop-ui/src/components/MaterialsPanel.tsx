@@ -1,6 +1,7 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
+import { mergeMaterials, parseMaterialsFile, serializeMaterialsFile, summarizeMaterialImport } from '@/lib/configFormat';
 import { api } from '@/lib/tauri';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -18,12 +19,15 @@ export function MaterialsPanel() {
     try {
       const path = await open({ multiple: false, directory: false, filters: JSON_FILTER });
       if (typeof path !== 'string') return;
-      const library = await api.importMaterials(path);
-      mutate((p) => {
-        // Imported presets are added; ids are regenerated so nothing collides.
-        for (const preset of library.presets) p.materials.presets.push({ ...preset, id: crypto.randomUUID() });
-      });
-      notify('info', `Imported ${library.presets.length} presets.`);
+      const parsed = parseMaterialsFile(await api.readConfigFile(path));
+      const merge = mergeMaterials(project.materials.presets, parsed.presets, () => crypto.randomUUID());
+      if (merge.added.length > 0) {
+        mutate((p) => {
+          p.materials.presets.push(...merge.added);
+        });
+      }
+      const summary = summarizeMaterialImport(parsed, merge);
+      notify(summary.kind, summary.text);
     } catch (e) {
       notify('error', `Import failed: ${errorMessage(e)}`);
     }
@@ -33,7 +37,7 @@ export function MaterialsPanel() {
     try {
       const path = await save({ defaultPath: 'materials.json', filters: JSON_FILTER });
       if (!path) return;
-      await api.exportMaterials(path, project.materials);
+      await api.writeConfigFile(path, serializeMaterialsFile(project.materials));
       notify('info', 'Material library exported.');
     } catch (e) {
       notify('error', `Export failed: ${errorMessage(e)}`);

@@ -48,4 +48,7 @@ export const api = {
   importMaterials: (path: string) => invoke<MaterialLibrary>('import_materials', { path }),
   exportMaterials: (path: string, library: MaterialLibrary) =>
     invoke<void>('export_materials', { path, library }),
+  /** Plain-text .json config files (material libraries, machine profiles): see lib/configFormat.ts. */
+  readConfigFile: (path: string) => invoke<string>('read_config_file', { path }),
+  writeConfigFile: (path: string, text: string) => invoke<void>('write_config_file', { path, text }),
 };
