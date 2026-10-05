@@ -121,6 +121,8 @@ export interface ProjectSettings {
   grid_spacing_mm: number;
   show_grid: boolean;
   show_origin: boolean;
+  /** false: engrave, score, then cut. true: layers run from the top of the Layers list to the bottom. */
+  custom_run_order?: boolean;
 }
 
 export interface ProjectFile {

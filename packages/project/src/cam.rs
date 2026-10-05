@@ -102,8 +102,38 @@ pub fn plan_operations(project: &ProjectFile) -> PlanResult {
             .find_layer(op.layer_id())
             .map(|l| l.z_order)
             .unwrap_or(0);
-        (op.execution_priority(), z)
+        (
+            if project.settings.custom_run_order {
+                0
+            } else {
+                op.execution_priority()
+            },
+            z,
+        )
     });
+
+    // In "my own order" mode a cut can come before engraving. That is allowed, but the cut-out
+    // piece may shift or drop out before the engraving is done, so say so.
+    if project.settings.custom_run_order {
+        if let Some(first_cut) = operations
+            .iter()
+            .position(|op| matches!(op, LaserOperation::Cut { .. }))
+        {
+            let later: Vec<String> = operations[first_cut + 1..]
+                .iter()
+                .filter(|op| !matches!(op, LaserOperation::Cut { .. }))
+                .filter_map(|op| project.find_layer(op.layer_id()))
+                .map(|l| format!("'{}'", l.name))
+                .collect();
+            if !later.is_empty() {
+                let verb = if later.len() == 1 { "runs" } else { "run" };
+                warnings.push(format!(
+                    "Run order: {} {verb} after a cut. The cut-out piece may shift or drop out before it is engraved. Put the cut layer last unless the piece is held in place.",
+                    later.join(", ")
+                ));
+            }
+        }
+    }
 
     PlanResult {
         operations,
@@ -207,6 +237,66 @@ mod tests {
         vector_on(&mut p, LayerKind::Cut);
         p.objects[0].locked = true;
         assert_eq!(plan_operations(&p).operations.len(), 1);
+    }
+
+    #[test]
+    fn automatic_order_runs_engraving_before_cutting_whatever_the_layer_order() {
+        let mut p = project();
+        vector_on(&mut p, LayerKind::Cut);
+        image_on(&mut p, LayerKind::Image);
+        for l in p.layers.iter_mut().filter(|l| l.kind == LayerKind::Cut) {
+            l.z_order = -10; // listed first, but it still runs last
+        }
+        let plan = plan_operations(&p);
+        assert!(matches!(plan.operations[0], LaserOperation::Raster { .. }));
+        assert!(matches!(plan.operations[1], LaserOperation::Cut { .. }));
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn custom_order_follows_the_layer_order_and_warns_about_engraving_after_a_cut() {
+        let mut p = project();
+        vector_on(&mut p, LayerKind::Cut);
+        image_on(&mut p, LayerKind::Image);
+        p.settings.custom_run_order = true;
+        for l in p.layers.iter_mut().filter(|l| l.kind == LayerKind::Cut) {
+            l.z_order = -10;
+        }
+        let plan = plan_operations(&p);
+        assert!(matches!(plan.operations[0], LaserOperation::Cut { .. }));
+        assert!(matches!(plan.operations[1], LaserOperation::Raster { .. }));
+        assert!(plan.warnings.iter().any(|w| w.contains("after a cut")));
+    }
+
+    #[test]
+    fn custom_order_with_the_cut_last_has_no_warning() {
+        let mut p = project();
+        vector_on(&mut p, LayerKind::Cut);
+        image_on(&mut p, LayerKind::Image);
+        p.settings.custom_run_order = true;
+        for l in p.layers.iter_mut() {
+            l.z_order = if l.kind == LayerKind::Cut { 10 } else { 0 };
+        }
+        let plan = plan_operations(&p);
+        assert!(matches!(plan.operations[0], LaserOperation::Raster { .. }));
+        assert!(matches!(plan.operations[1], LaserOperation::Cut { .. }));
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn layers_of_the_same_kind_run_in_layer_order() {
+        let mut p = project();
+        let mut second = makerlaser_common::Layer::new("Cut 2", LayerKind::Cut, 0);
+        second.z_order = -5; // listed before the default Cut layer
+        let second_id = second.id;
+        p.layers.push(second);
+        vector_on(&mut p, LayerKind::Cut); // on the default Cut layer
+        let mut o = WorkspaceObject::new_vector("w", vec![square()], 1);
+        o.layer_id = Some(second_id);
+        p.objects.push(o);
+        let plan = plan_operations(&p);
+        assert_eq!(plan.operations.len(), 2);
+        assert_eq!(plan.operations[0].layer_id(), second_id);
     }
 
     #[test]

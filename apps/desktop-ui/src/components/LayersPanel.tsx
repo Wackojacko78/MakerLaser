@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
+import {
+  adoptAutomaticOrder,
+  canMoveLayer,
+  computeRunOrder,
+  isCustomOrder,
+  moveLayer,
+  orderedLayers,
+  runOrderWarning,
+} from '@/lib/runOrder';
 import { findMatchingPreset, presetAppliedMessage } from '@/lib/selectionInfo';
 import { api } from '@/lib/tauri';
 import { useNoticeStore } from '@/state/noticeStore';
@@ -47,7 +56,20 @@ function RasterPreview({ assetId, params }: { assetId: string; params: RasterOpe
   return <img className="raster-preview" src={url} alt="Dithered engraving preview" />;
 }
 
-function LayerCard({ layer }: { layer: Layer }) {
+function LayerCard({
+  layer,
+  runPosition,
+  custom,
+  canMoveUp,
+  canMoveDown,
+}: {
+  layer: Layer;
+  /** 1 = runs first; 0 = this layer will not run (disabled or empty). */
+  runPosition: number;
+  custom: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+}) {
   const project = useProjectStore((s) => s.project);
   const mutate = useProjectStore((s) => s.mutate);
   const selected = useProjectStore((s) => s.selected);
@@ -89,7 +111,38 @@ function LayerCard({ layer }: { layer: Layer }) {
         />
         <i style={{ background: layer.color }} />
         <b>{layer.name}</b>
+        {runPosition > 0 && (
+          <span title="The order this layer runs in: #1 runs first" style={{ color: 'var(--accent)', fontWeight: 600 }}>
+            #{runPosition}
+          </span>
+        )}
         <span className="count">{objects.length}</span>
+        <button
+          className="mini"
+          disabled={!canMoveUp}
+          title={custom ? 'Run this layer earlier' : 'Run this layer before the previous layer of the same type'}
+          onClick={(e) => {
+            e.preventDefault();
+            mutate((p) => {
+              moveLayer(p.layers, layer.id, -1, !custom);
+            });
+          }}
+        >
+          &#9650;
+        </button>
+        <button
+          className="mini"
+          disabled={!canMoveDown}
+          title={custom ? 'Run this layer later' : 'Run this layer after the next layer of the same type'}
+          onClick={(e) => {
+            e.preventDefault();
+            mutate((p) => {
+              moveLayer(p.layers, layer.id, 1, !custom);
+            });
+          }}
+        >
+          &#9660;
+        </button>
         <button
           className="mini"
           disabled={selected.length === 0}
@@ -243,12 +296,49 @@ function LayerCard({ layer }: { layer: Layer }) {
 
 export function LayersPanel() {
   const project = useProjectStore((s) => s.project);
+  const mutate = useProjectStore((s) => s.mutate);
   if (!project) return null;
+
+  const custom = isCustomOrder(project);
+  const runOrder = computeRunOrder(project);
+  const listed = orderedLayers(project.layers);
+  const warning = runOrderWarning(project);
+
   return (
     <section className="panel">
       <h3>Layers</h3>
-      {project.layers.map((l) => (
-        <LayerCard key={l.id} layer={l} />
+      <div className="preset-row" style={{ margin: '0 0 4px' }}>
+        <select
+          value={custom ? 'custom' : 'auto'}
+          title="Which layer the laser runs first"
+          onChange={(e) => {
+            const wantCustom = e.target.value === 'custom';
+            mutate((p) => {
+              // Switching to your own order keeps today's order until you move a layer.
+              if (wantCustom) adoptAutomaticOrder(p.layers);
+              p.settings.custom_run_order = wantCustom;
+            });
+          }}
+        >
+          <option value="auto">Run order: engrave, score, then cut</option>
+          <option value="custom">Run order: my own (top to bottom)</option>
+        </select>
+      </div>
+      <p className="hint" style={{ margin: '2px 0 6px' }}>
+        {custom
+          ? 'Layers run from the top of this list to the bottom. Use the arrows to change it. #1 runs first.'
+          : 'Engraving runs first and cutting last. The arrows reorder layers of the same type. Choose "my own" to put any layer first. #1 runs first.'}
+      </p>
+      {warning && <p className="banner danger">{warning}</p>}
+      {listed.map((l) => (
+        <LayerCard
+          key={l.id}
+          layer={l}
+          runPosition={runOrder.indexOf(l.id) + 1}
+          custom={custom}
+          canMoveUp={canMoveLayer(project.layers, l.id, -1, !custom)}
+          canMoveDown={canMoveLayer(project.layers, l.id, 1, !custom)}
+        />
       ))}
     </section>
   );

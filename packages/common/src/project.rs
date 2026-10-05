@@ -21,6 +21,9 @@ pub struct ProjectSettings {
     pub grid_spacing_mm: f64,
     pub show_grid: bool,
     pub show_origin: bool,
+    /// `false`: engrave, score, then cut. `true`: layers run in layer order (`z_order`).
+    #[serde(default)]
+    pub custom_run_order: bool,
 }
 
 impl Default for ProjectSettings {
@@ -30,6 +33,7 @@ impl Default for ProjectSettings {
             grid_spacing_mm: 10.0,
             show_grid: true,
             show_origin: true,
+            custom_run_order: false,
         }
     }
 }
@@ -97,6 +101,14 @@ mod tests {
         bad.enabled = false;
         p.layers.push(bad);
         assert!(p.validation_errors().is_empty());
+    }
+
+    #[test]
+    fn old_settings_without_run_order_load_as_automatic() {
+        let json = r#"{"units":"mm","grid_spacing_mm":10.0,"show_grid":true,"show_origin":true}"#;
+        let s: ProjectSettings = serde_json::from_str(json).unwrap();
+        assert!(!s.custom_run_order);
+        assert!(!ProjectSettings::default().custom_run_order);
     }
 
     #[test]
