@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { renderText, MAX_TEXT_CHARS, type TextAlign } from '@/lib/textRender';
 import { shapePathData } from '@/lib/textTrace';
+import { fontChoices, installedFonts, isFontAvailable, pickDefaultFont } from '@/lib/fonts';
 import { TEST_PREFIX } from '@/lib/testGrid';
 import { useProjectStore } from '@/state/projectStore';
 import type { LayerKind, WorkspaceObject } from '@/types/domain';
@@ -11,7 +12,6 @@ interface Props {
 
 type Mode = 'fill' | 'score' | 'cut';
 
-const FONTS = ['Arial', 'Calibri', 'Segoe UI', 'Verdana', 'Tahoma', 'Impact', 'Times New Roman', 'Georgia', 'Consolas', 'Courier New'];
 
 const MODE_HELP: Record<Mode, string> = {
   fill: 'Engrave: the letters are filled in. Best for names, labels and serial numbers.',
@@ -25,7 +25,7 @@ export function TextDialog({ onClose }: Props) {
   const addObject = useProjectStore((s) => s.addObject);
 
   const [text, setText] = useState('Hello');
-  const [fontFamily, setFontFamily] = useState('Arial');
+  const [fontFamily, setFontFamily] = useState(() => pickDefaultFont(installedFonts()));
   const [bold, setBold] = useState(false);
   const [italic, setItalic] = useState(false);
   const [capHeight, setCapHeight] = useState('10');
@@ -125,11 +125,12 @@ export function TextDialog({ onClose }: Props) {
           </select>
         </div>
         <datalist id="makerlaser-fonts">
-          {FONTS.map((f) => (
+          {fontChoices(installedFonts()).map((f) => (
             <option key={f} value={f} />
           ))}
         </datalist>
         <p className="hint">{MODE_HELP[mode]}</p>
+        {!isFontAvailable(fontFamily) && <p className="hint">&ldquo;{fontFamily}&rdquo; was not found on this computer, so a default font will be drawn instead. Pick a font from the list.</p>}
         {!layer && <p className="hint">There is no {mode} layer, so the text will go on the default layer. Change it in the Layers panel.</p>}
 
         {error && <p className="banner danger">{error}</p>}
