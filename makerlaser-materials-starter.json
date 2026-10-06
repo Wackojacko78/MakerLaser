@@ -1,0 +1,316 @@
+{
+  "format": "makerlaser.materials",
+  "version": 1,
+  "presets": [
+    {
+      "name": "Basswood 2 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 40,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 2,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Bamboo 5 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 40,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 5,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Kraft paper 0.15 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 18,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.15,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Red card paper 0.2 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 15,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.2,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Red felt 0.8 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 13,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.8,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Brown leather 0.65 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 6000,
+      "power_percent": 18,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.65,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Vegetable-tanned leather only: never laser chrome-tanned leather. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Black acrylic 4.6 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 4000,
+      "power_percent": 50,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 4.6,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Dark or opaque acrylic only: a blue diode passes through clear acrylic. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Anodised aluminium 3 mm - Engrave (22 W Falcon2)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 800,
+      "power_percent": 80,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 3,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Marks the coating only, not bare metal. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Basswood 2 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 700,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 2,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Basswood 5 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 400,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 5,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Basswood 8 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 240,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 8,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Basswood 10 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 120,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 10,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Bamboo 5 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 400,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 5,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Kraft paper 0.2 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 4000,
+      "power_percent": 80,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.2,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Red card paper 0.2 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 4000,
+      "power_percent": 50,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.2,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Red felt 0.8 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 4000,
+      "power_percent": 55,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.8,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Brown leather 0.65 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 2000,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 0.65,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Vegetable-tanned leather only: never laser chrome-tanned leather. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Black acrylic 4.6 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 120,
+      "power_percent": 100,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": 4.6,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Dark or opaque acrylic only. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Black acrylic 7.6 mm - Cut (22 W Falcon2)",
+      "for_layer_kind": "cut",
+      "speed_mm_min": 120,
+      "power_percent": 100,
+      "passes": 2,
+      "air_assist": false,
+      "thickness_mm": 7.6,
+      "notes": "Creality Falcon2 22W parameter table (store.creality.com/blogs/all/falcon2-22w-laser-engraver-shopping-guide). Dark or opaque acrylic only. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Basswood - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 20,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Pine - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 20,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Mahogany - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 35,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Paulownia - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 2700,
+      "power_percent": 45,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Bamboo - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 50,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Leather - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 20,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Vegetable-tanned leather only: never laser chrome-tanned leather. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Denim - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 20,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Kraft paper - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 15,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Office paper - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 1500,
+      "power_percent": 13,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.125 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Oil painting paper - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 23,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "Cardboard - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 15,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.1 mm: set the Fill layer spacing to match. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    },
+    {
+      "name": "MDF - Engrave (20 W Atomstack)",
+      "for_layer_kind": "fill",
+      "speed_mm_min": 3000,
+      "power_percent": 20,
+      "passes": 1,
+      "air_assist": false,
+      "thickness_mm": null,
+      "notes": "Atomstack LightBurn X20 Pro engraving parameter table, also listed for A20 Pro and S20 Pro (atomstackshop.com/blogs/engraving-and-cutting-parameter/lightburn-x20-pro-engraving-parameter-table). Line interval 0.085 mm: set the Fill layer spacing to match. MDF glue makes harmful smoke: vent it outside. Published for that laser only: a weaker laser needs slower speed or more passes. Test on scrap."
+    }
+  ]
+}
