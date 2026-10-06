@@ -14,6 +14,7 @@ import {
   type MachineEntry,
 } from '@/lib/configFormat';
 import { errorMessage } from '@/lib/format';
+import { CATALOG_PREFIX, MACHINE_CATALOG, catalogNote, findCatalogEntry } from '@/lib/machineCatalog';
 import { loadSavedMachines, storeSavedMachines } from '@/lib/savedMachines';
 import { useNoticeStore } from '@/state/noticeStore';
 import { api } from '@/lib/tauri';
@@ -135,6 +136,13 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
           <select
             value=""
             onChange={(e) => {
+              if (e.target.value.startsWith(CATALOG_PREFIX)) {
+                const entry = findCatalogEntry(e.target.value.slice(CATALOG_PREFIX.length));
+                if (!entry) return;
+                patch('preset', (mm) => Object.assign(mm, { ...entry.machine, id: mm.id }));
+                notify('info', `Machine set to "${entry.machine.name}". ${catalogNote(entry)}`);
+                return;
+              }
               const preset = e.target.value.startsWith(SAVED_PREFIX)
                 ? saved.find((s) => s.name === e.target.value.slice(SAVED_PREFIX.length))
                 : presets.find((p) => p.id === e.target.value);
@@ -147,6 +155,11 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
             {presets.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
+            <optgroup label="Catalogue (check bed size and origin)">
+              {MACHINE_CATALOG.map((c) => (
+                <option key={c.machine.name} value={`${CATALOG_PREFIX}${c.machine.name}`}>{c.machine.name}</option>
+              ))}
+            </optgroup>
             {saved.length > 0 && (
               <optgroup label="Saved by you">
                 {saved.map((s) => (
