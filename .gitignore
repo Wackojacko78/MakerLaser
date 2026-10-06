@@ -26,3 +26,5 @@ verification.log
 .env
 .env.local
 *.mlp.tmp
+
+add-*.mjs
