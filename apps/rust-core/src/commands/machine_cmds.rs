@@ -77,6 +77,13 @@ pub fn machine_connect(
     if is_running(&state) {
         return Err("A job is running. Stop it before reconnecting.".to_string());
     }
+    // Only USB serial can connect for now. Say so plainly instead of trying a serial port.
+    if !simulate && lock(&state.project)?.machine.uses_network() {
+        return Err(
+            "This machine is set to connect over the network, which MakerLaser cannot do yet. Choose USB serial in the Machine window, or use the simulator."
+                .to_string(),
+        );
+    }
     let mut controller = state.controller()?;
     if controller.is_connected() {
         return Err("Already connected. Disconnect first.".to_string());

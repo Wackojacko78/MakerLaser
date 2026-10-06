@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
+import { MachineConnectionFields } from '@/components/MachineConnectionFields';
 import { machineSummary } from '@/lib/selectionInfo';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import {
@@ -45,7 +46,12 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
   if (!project) return null;
   const m = project.machine;
   const patch = (key: string, fn: (m: MachineProfile) => void) =>
-    mutate((p) => fn(p.machine), `machine-${key}`);
+    mutate((p) => {
+      // Loading a preset or a file replaces the whole machine, and one with no connection
+      // means USB serial: forget the old connection first so a network setting cannot stick.
+      if (key === 'preset' || key === 'import') delete p.machine.connection;
+      fn(p.machine);
+    }, `machine-${key}`);
 
   /** Keeps `entry` in the "Saved by you" list, replacing a saved preset with the same name. */
   const remember = (entry: MachineEntry): 'new' | 'updated' | 'builtin' | 'full' => {
@@ -190,6 +196,7 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
           <NumberField value={m.max_spindle_value} min={1} max={100000} onCommit={(v) => patch('s', (mm) => (mm.max_spindle_value = Math.round(v)))} />
           <label>Baud rate</label>
           <NumberField value={m.baud_rate} min={300} onCommit={(v) => patch('baud', (mm) => (mm.baud_rate = Math.round(v)))} />
+          <MachineConnectionFields />
 
           <label>Air assist fitted</label>
           <input type="checkbox" checked={m.air_assist_supported} onChange={(e) => patch('air', (mm) => (mm.air_assist_supported = e.target.checked))} />

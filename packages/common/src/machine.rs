@@ -23,6 +23,102 @@ pub enum MachineOrigin {
     BottomRight,
 }
 
+/// How MakerLaser reaches the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionKind {
+    /// A USB serial port: the default, and the only kind that can connect today.
+    #[default]
+    Serial,
+    /// A WebSocket to a network controller such as FluidNC (usually port 81).
+    Websocket,
+    /// Raw TCP (Telnet) to a network controller such as FluidNC (usually port 23).
+    Telnet,
+}
+
+/// Where and how to reach the machine. A network connection is stored, validated and saved, but
+/// MakerLaser refuses to connect with one for now (see `machine_connect`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ConnectionSettings {
+    #[serde(default)]
+    pub kind: ConnectionKind,
+    /// Host name or IPv4 address for the network kinds. Ignored for USB serial.
+    #[serde(default)]
+    pub host: String,
+    /// TCP port. `0` means the usual port for the kind (81 for WebSocket, 23 for Telnet).
+    #[serde(default)]
+    pub port: u16,
+}
+
+impl ConnectionSettings {
+    pub fn is_network(&self) -> bool {
+        self.kind != ConnectionKind::Serial
+    }
+
+    /// Problems with the address (none for USB serial, which has nothing to check).
+    pub fn problems(&self) -> Vec<String> {
+        if !self.is_network() {
+            return Vec::new();
+        }
+        host_problem(&self.host)
+            .map(|p| format!("Machine address: {p}"))
+            .into_iter()
+            .collect()
+    }
+}
+
+/// Why `raw` cannot be a machine address, or `None` when it can. IPv4 addresses and host names
+/// only. Mirrors `hostProblem` in apps/desktop-ui/src/lib/connectionSettings.ts: keep the two in step.
+pub fn host_problem(raw: &str) -> Option<String> {
+    let host = raw.trim();
+    if host.is_empty() {
+        return Some(
+            "Enter the machine's address, for example 192.168.1.50 or fluidnc.local.".to_string(),
+        );
+    }
+    if host.len() > 253 {
+        return Some("The address is too long.".to_string());
+    }
+    if !host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        return Some(
+            "The address may only contain letters, digits, hyphens and dots. Leave out http://, spaces, paths and the port number: enter the port separately."
+                .to_string(),
+        );
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.iter().any(|l| l.is_empty()) {
+        return Some(
+            "The address has an empty part (two dots in a row, or a dot at the start or end)."
+                .to_string(),
+        );
+    }
+    if labels.iter().any(|l| l.len() > 63) {
+        return Some("Each part of the address must be 63 characters or fewer.".to_string());
+    }
+    if labels
+        .iter()
+        .any(|l| l.starts_with('-') || l.ends_with('-'))
+    {
+        return Some("A part of the address cannot start or end with a hyphen.".to_string());
+    }
+    if labels.iter().all(|l| l.bytes().all(|b| b.is_ascii_digit())) {
+        let valid = labels.len() == 4
+            && labels
+                .iter()
+                .all(|l| l.len() <= 3 && l.parse::<u16>().is_ok_and(|n| n <= 255));
+        if !valid {
+            return Some(
+                "That looks like an IP address but is not a valid one: it needs four numbers from 0 to 255, like 192.168.1.50."
+                    .to_string(),
+            );
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineProfile {
     pub id: Uuid,
@@ -37,6 +133,9 @@ pub struct MachineProfile {
     pub homing_supported: bool,
     pub air_assist_supported: bool,
     pub baud_rate: u32,
+    /// How to reach the machine. Absent in older files, which means USB serial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionSettings>,
 }
 
 impl MachineProfile {
@@ -55,6 +154,7 @@ impl MachineProfile {
             homing_supported: false,
             air_assist_supported: true,
             baud_rate: 115_200,
+            connection: None,
         }
     }
 
@@ -81,6 +181,7 @@ impl MachineProfile {
             homing_supported: false,
             air_assist_supported: false,
             baud_rate: 115_200,
+            connection: None,
         }
     }
 
@@ -135,13 +236,134 @@ impl MachineProfile {
         if self.max_spindle_value == 0 {
             problems.push("Machine maximum S value ($30) must be greater than zero".to_string());
         }
+        if let Some(connection) = &self.connection {
+            problems.extend(connection.problems());
+        }
         problems
+    }
+
+    /// True when the machine is reached over the network rather than a USB serial port.
+    pub fn uses_network(&self) -> bool {
+        self.connection
+            .as_ref()
+            .is_some_and(ConnectionSettings::is_network)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn network(kind: ConnectionKind, host: &str) -> ConnectionSettings {
+        ConnectionSettings {
+            kind,
+            host: host.to_string(),
+            port: 0,
+        }
+    }
+
+    #[test]
+    fn a_machine_without_a_connection_is_usb_serial_and_is_saved_without_one() {
+        let m = MachineProfile::tts55_pro();
+        assert!(m.connection.is_none());
+        assert!(!m.uses_network());
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("connection"), "{json}");
+    }
+
+    #[test]
+    fn older_machine_json_without_a_connection_still_loads() {
+        let json = r#"{"id":"00000000-0000-0000-0000-000000000000","name":"Old","controller":"grbl1_1","bed_width_mm":300.0,"bed_height_mm":300.0,"origin":"bottom_left","max_feed_rate_mm_min":10000.0,"max_spindle_value":1000,"homing_supported":false,"air_assist_supported":true,"baud_rate":115200}"#;
+        let m: MachineProfile = serde_json::from_str(json).unwrap();
+        assert!(m.connection.is_none());
+        assert!(!m.uses_network());
+    }
+
+    #[test]
+    fn a_network_connection_round_trips_through_json() {
+        let mut m = MachineProfile::tts55_pro();
+        m.connection = Some(ConnectionSettings {
+            kind: ConnectionKind::Websocket,
+            host: "fluidnc.local".to_string(),
+            port: 81,
+        });
+        assert!(m.uses_network());
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains(r#""kind":"websocket""#), "{json}");
+        let back: MachineProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn connection_kinds_use_the_names_the_frontend_expects() {
+        for (kind, name) in [
+            (ConnectionKind::Serial, "serial"),
+            (ConnectionKind::Websocket, "websocket"),
+            (ConnectionKind::Telnet, "telnet"),
+        ] {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{name}\""));
+        }
+    }
+
+    #[test]
+    fn usb_serial_ignores_any_address() {
+        let c = network(ConnectionKind::Serial, "not an address!");
+        assert!(!c.is_network());
+        assert!(c.problems().is_empty());
+    }
+
+    #[test]
+    fn good_addresses_are_accepted() {
+        for h in [
+            "192.168.1.50",
+            "0.0.0.0",
+            "255.255.255.255",
+            "fluidnc.local",
+            "laser-1",
+            "FluidNC",
+            "3dprinter.local",
+            "10.0.0.x",
+            "  192.168.1.5  ",
+        ] {
+            assert_eq!(host_problem(h), None, "{h:?}");
+        }
+    }
+
+    #[test]
+    fn bad_addresses_are_refused() {
+        for h in [
+            "",
+            "   ",
+            "http://fluidnc.local",
+            "fluidnc.local:81",
+            "a b",
+            "host/path",
+            "a..b",
+            ".a",
+            "a.",
+            "-a",
+            "a-.b",
+            "256.1.1.1",
+            "1.2.3",
+            "1.2.3.4.5",
+            "1234",
+            "0007.1.1.1",
+        ] {
+            assert!(host_problem(h).is_some(), "{h:?}");
+        }
+        assert!(host_problem(&"a".repeat(64)).is_some());
+    }
+
+    #[test]
+    fn a_bad_network_address_is_a_machine_problem_but_only_for_network_machines() {
+        let mut m = MachineProfile::tts55_pro();
+        m.connection = Some(network(ConnectionKind::Telnet, "bad host"));
+        assert!(m.validate().iter().any(|p| p.contains("Machine address")));
+        m.connection = Some(network(ConnectionKind::Telnet, "10.0.0.5"));
+        assert!(m.validate().is_empty());
+        m.connection = Some(network(ConnectionKind::Serial, "bad host"));
+        assert!(m.validate().is_empty());
+    }
 
     #[test]
     fn tts55_default_bed_is_300() {

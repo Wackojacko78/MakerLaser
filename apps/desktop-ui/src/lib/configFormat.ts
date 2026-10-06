@@ -11,6 +11,7 @@
 // are still read.
 
 import type { LayerKind, MachineOrigin, MachineProfile, MaterialPreset } from '@/types/domain';
+import { connectionToEntry, parseConnection } from '@/lib/connectionSettings';
 
 export const MATERIALS_FORMAT = 'makerlaser.materials';
 export const MACHINE_FORMAT = 'makerlaser.machine';
@@ -279,6 +280,9 @@ export function validateMachineEntry(raw: unknown): MachineCheck {
   const baud = raw.baud_rate ?? 115200;
   if (!isInt(baud) || baud < 300) bad('baud_rate must be a whole number of at least 300');
 
+  const connection = parseConnection(raw.connection);
+  problems.push(...connection.problems);
+
   if (problems.length > 0) return { entry: null, problems };
   return {
     entry: {
@@ -292,6 +296,7 @@ export function validateMachineEntry(raw: unknown): MachineCheck {
       homing_supported: homing as boolean,
       air_assist_supported: air as boolean,
       baud_rate: baud as number,
+      ...(connection.value ? { connection: connection.value } : {}),
     },
     problems,
   };
@@ -299,6 +304,7 @@ export function validateMachineEntry(raw: unknown): MachineCheck {
 
 /** A machine profile without its id, which is what files and saved presets hold. */
 export function machineToEntry(m: MachineProfile | MachineEntry): MachineEntry {
+  const connection = connectionToEntry(m.connection);
   return {
     name: m.name,
     controller: m.controller,
@@ -310,6 +316,7 @@ export function machineToEntry(m: MachineProfile | MachineEntry): MachineEntry {
     homing_supported: m.homing_supported,
     air_assist_supported: m.air_assist_supported,
     baud_rate: m.baud_rate,
+    ...(connection ? { connection } : {}),
   };
 }
 

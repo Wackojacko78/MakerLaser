@@ -86,6 +86,17 @@ export interface WorkspaceObject {
 
 export type MachineOrigin = 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
 
+/** How MakerLaser reaches a machine. USB serial is the default; WebSocket and Telnet are for FluidNC. */
+export type ConnectionKind = 'serial' | 'websocket' | 'telnet';
+
+export interface ConnectionSettings {
+  kind: ConnectionKind;
+  /** Host name or IPv4 address for websocket and telnet. Ignored for serial. */
+  host: string;
+  /** TCP port. 0 means the usual port for the kind (81 for WebSocket, 23 for Telnet). */
+  port: number;
+}
+
 export interface MachineProfile {
   id: UUID;
   name: string;
@@ -98,6 +109,8 @@ export interface MachineProfile {
   homing_supported: boolean;
   air_assist_supported: boolean;
   baud_rate: number;
+  /** How to reach the machine. Absent in older files, which means USB serial. */
+  connection?: ConnectionSettings;
 }
 
 export interface MaterialPreset {
