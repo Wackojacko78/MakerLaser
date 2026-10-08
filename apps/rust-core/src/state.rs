@@ -34,6 +34,9 @@ pub struct AppState {
     pub job_running: Arc<AtomicBool>,
     pub generated: Mutex<Option<GeneratedJob>>,
     pub project_path: Mutex<Option<PathBuf>>,
+    /// Machine position (`MPos`) of the User origin for Start From. Only valid until the
+    /// controller is reset or reconnected, so it is never saved with the project.
+    pub user_origin: Arc<Mutex<Option<(f64, f64)>>>,
 }
 
 impl Default for AppState {
@@ -48,6 +51,7 @@ impl Default for AppState {
             job_running: Arc::new(AtomicBool::new(false)),
             generated: Mutex::new(None),
             project_path: Mutex::new(None),
+            user_origin: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -62,6 +66,14 @@ pub fn lock<T>(m: &Mutex<T>) -> Result<MutexGuard<'_, T>, String> {
 }
 
 impl AppState {
+    /// Forgets the User origin. It is a machine position, so it is only valid until the
+    /// controller is reset: connecting, disconnecting, stopping and a failed job all clear it.
+    pub fn clear_user_origin(&self) {
+        if let Ok(mut origin) = self.user_origin.lock() {
+            *origin = None;
+        }
+    }
+
     /// Locks the controller without blocking: while a job is streaming the job thread
     /// holds it, and a jog/home/frame request must fail fast rather than freeze or queue.
     pub fn controller(&self) -> Result<MutexGuard<'_, Box<dyn Controller>>, String> {
@@ -95,6 +107,14 @@ mod tests {
         assert_eq!(before, fingerprint(&p));
         p.layers[0].power_percent += 1.0;
         assert_ne!(before, fingerprint(&p));
+    }
+
+    #[test]
+    fn clearing_the_user_origin_forgets_it() {
+        let state = AppState::default();
+        *state.user_origin.lock().unwrap() = Some((1.0, 2.0));
+        state.clear_user_origin();
+        assert!(state.user_origin.lock().unwrap().is_none());
     }
 
     #[test]

@@ -39,6 +39,10 @@ export const api = {
   home: () => invoke<void>('machine_home'),
   unlock: () => invoke<void>('machine_unlock'),
   setOrigin: () => invoke<void>('machine_set_origin'),
+  /** Remembers where the head is now (machine position, mm) as the User origin for Start From. */
+  setUserOrigin: () => invoke<[number, number]>('machine_set_user_origin'),
+  userOrigin: () => invoke<[number, number] | null>('machine_user_origin'),
+  clearUserOrigin: () => invoke<void>('machine_clear_user_origin'),
   frame: () => invoke<void>('machine_frame'),
   start: () => invoke<void>('machine_start'),
   pause: () => invoke<void>('machine_pause'),

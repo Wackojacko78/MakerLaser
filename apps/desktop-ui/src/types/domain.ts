@@ -129,6 +129,12 @@ export interface MaterialLibrary {
   presets: MaterialPreset[];
 }
 
+/** Where the job is placed: on the bed, or relative to the laser head. */
+export type StartFrom = 'absolute' | 'current_position' | 'user_origin';
+
+/** Which point of the job sits on the head for the relative modes (the nine dots). */
+export type JobOrigin = 'top_left' | 'top' | 'top_right' | 'left' | 'center' | 'right' | 'bottom_left' | 'bottom' | 'bottom_right';
+
 export interface ProjectSettings {
   units: 'mm' | 'inch';
   grid_spacing_mm: number;
@@ -136,6 +142,10 @@ export interface ProjectSettings {
   show_origin: boolean;
   /** false: engrave, score, then cut. true: layers run from the top of the Layers list to the bottom. */
   custom_run_order?: boolean;
+  /** Where the job is placed. Absent in older projects, which means 'absolute'. */
+  start_from?: StartFrom;
+  /** Which point of the job sits on the head when start_from is not 'absolute'. Absent means 'bottom_left'. */
+  job_origin?: JobOrigin;
 }
 
 export interface ProjectFile {

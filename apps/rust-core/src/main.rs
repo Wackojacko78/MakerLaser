@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod placement;
 mod state;
 
 use commands::{config_cmds, gcode_cmds, import_cmds, machine_cmds, material_cmds, project_cmds};
@@ -36,6 +37,9 @@ fn main() {
             machine_cmds::machine_home,
             machine_cmds::machine_unlock,
             machine_cmds::machine_set_origin,
+            machine_cmds::machine_set_user_origin,
+            machine_cmds::machine_user_origin,
+            machine_cmds::machine_clear_user_origin,
             machine_cmds::machine_frame,
             machine_cmds::machine_start,
             machine_cmds::machine_pause,

@@ -103,6 +103,13 @@ pub fn check_project(project: &ProjectFile) -> SafetyReport {
             .warnings
             .push("All layers are disabled: nothing would be run.".to_string());
     }
+    if project.settings.start_from.is_relative() {
+        report.warnings.push(format!(
+            "Start From is {} (job origin: {}). The job runs relative to the laser head, and MakerLaser cannot check that it stays on the bed from where the head is: use Frame first. Saved G-code files do not include this placement.",
+            project.settings.start_from.label(),
+            project.settings.job_origin.label()
+        ));
+    }
     report
 }
 
@@ -131,6 +138,25 @@ mod tests {
             })
             .collect();
         Toolpath { segments }
+    }
+
+    #[test]
+    fn placing_the_job_relative_to_the_head_is_warned_about_but_not_blocked() {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        assert!(!check_project(&p)
+            .warnings
+            .iter()
+            .any(|w| w.contains("Start From")));
+        p.settings = serde_json::from_str(
+            r#"{"units":"mm","grid_spacing_mm":10.0,"show_grid":true,"show_origin":true,"start_from":"current_position","job_origin":"center"}"#,
+        )
+        .unwrap();
+        let r = check_project(&p);
+        assert!(r.is_safe_to_run());
+        assert!(r
+            .warnings
+            .iter()
+            .any(|w| w.contains("Start From is Current position") && w.contains("centre")));
     }
 
     #[test]

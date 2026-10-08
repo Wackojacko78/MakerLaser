@@ -10,14 +10,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use makerlaser_common::Point2;
+use makerlaser_common::{Point2, ProjectFile};
 use makerlaser_machine::{
     AvailablePort, GrblController, GrblStatus, JobEvent, MachineError, Simulator,
 };
 use serde::Serialize;
 use tauri::{Emitter, State};
 
-use crate::state::{fingerprint, lock, AppState};
+use crate::placement::{frame_program, place_program, Placement};
+use crate::state::{fingerprint, lock, AppState, POISONED};
 
 const FRAME_FEED_MM_MIN: f64 = 3000.0;
 const MAX_JOG_MM: f64 = 1000.0;
@@ -51,6 +52,38 @@ impl From<JobEvent<'_>> for JobEventPayload {
 
 fn is_running(state: &AppState) -> bool {
     state.job_running.load(Ordering::SeqCst)
+}
+
+/// The placement for Start From "Current position" or "User origin", or `None` for "Absolute".
+/// The anchor is the job origin (one of the nine points of the artwork's box) in machine
+/// coordinates, the same coordinates the previewed G-code uses.
+fn relative_placement(
+    state: &AppState,
+    project: &ProjectFile,
+) -> Result<Option<Placement>, String> {
+    let start_from = project.settings.start_from;
+    if !start_from.is_relative() {
+        return Ok(None);
+    }
+    let extent = project.job_extent().ok_or_else(|| {
+        "Nothing to place: no visible artwork is assigned to an enabled layer.".to_string()
+    })?;
+    let anchor = project
+        .machine
+        .workspace_to_machine(project.settings.job_origin.anchor(&extent));
+    let user_origin = if start_from.uses_user_origin() {
+        let stored = *state.user_origin.lock().map_err(|_| POISONED.to_string())?;
+        Some(stored.ok_or_else(|| {
+            "Start From is User origin, but no user origin is set. Jog the head to where the job should start, then press Set user origin in the Machine window."
+                .to_string()
+        })?)
+    } else {
+        None
+    };
+    Ok(Some(Placement {
+        anchor: (anchor.x, anchor.y),
+        user_origin,
+    }))
 }
 
 /// Clears `job_running` when the job thread ends, even if it panics.
@@ -99,6 +132,7 @@ pub fn machine_connect(
     next.connect(&port, baud).map_err(|e| e.to_string())?;
     *lock(&state.realtime)? = next.realtime_handle();
     *controller = next;
+    state.clear_user_origin();
     Ok(())
 }
 
@@ -110,6 +144,7 @@ pub fn machine_disconnect(state: State<'_, AppState>) -> Result<(), String> {
     let mut controller = state.controller()?;
     controller.disconnect().map_err(|e| e.to_string())?;
     *lock(&state.realtime)? = None;
+    state.clear_user_origin();
     Ok(())
 }
 
@@ -159,10 +194,49 @@ pub fn machine_set_origin(state: State<'_, AppState>) -> Result<(), String> {
     controller.set_origin().map_err(|e| e.to_string())
 }
 
+/// Remembers where the head is now (machine position) as the User origin for Start From.
+#[tauri::command(async)]
+pub fn machine_set_user_origin(state: State<'_, AppState>) -> Result<(f64, f64), String> {
+    if is_running(&state) {
+        return Err("A job is running. Stop it before setting the user origin.".to_string());
+    }
+    let mut controller = state.controller()?;
+    let status = controller.query_status().map_err(|e| e.to_string())?;
+    if format!("{:?}", status.state) == "Alarm" {
+        return Err(
+            "The machine is in an alarm state. Unlock it and check where the head is first."
+                .to_string(),
+        );
+    }
+    if !status.is_machine_position {
+        return Err(
+            "The controller reports work position instead of machine position (GRBL setting $10), so the user origin cannot be stored reliably. Set $10=1 and try again."
+                .to_string(),
+        );
+    }
+    let origin = (status.position.x, status.position.y);
+    if !(origin.0.is_finite() && origin.1.is_finite()) {
+        return Err("The controller reported an invalid position.".to_string());
+    }
+    *state.user_origin.lock().map_err(|_| POISONED.to_string())? = Some(origin);
+    Ok(origin)
+}
+
+#[tauri::command(async)]
+pub fn machine_user_origin(state: State<'_, AppState>) -> Result<Option<(f64, f64)>, String> {
+    Ok(*state.user_origin.lock().map_err(|_| POISONED.to_string())?)
+}
+
+#[tauri::command(async)]
+pub fn machine_clear_user_origin(state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_user_origin();
+    Ok(())
+}
+
 /// Traces the outline of the job (laser off). Refuses an empty job or one outside the bed.
 #[tauri::command(async)]
 pub fn machine_frame(state: State<'_, AppState>) -> Result<(), String> {
-    let (min, max, feed) = {
+    let (min, max, feed, relative) = {
         let project = lock(&state.project)?;
         let extent = project
             .objects
@@ -196,16 +270,29 @@ pub fn machine_frame(state: State<'_, AppState>) -> Result<(), String> {
             (min.x, min.y),
             (max.x, max.y),
             FRAME_FEED_MM_MIN.min(project.machine.max_feed_rate_mm_min),
+            relative_placement(&state, &project)?,
         )
     };
     let mut controller = state.controller()?;
-    controller.frame(min, max, feed).map_err(|e| e.to_string())
+    let Some(placement) = relative else {
+        return controller.frame(min, max, feed).map_err(|e| e.to_string());
+    };
+    // Start From relative to the head: trace the outline around it, then come back.
+    let lines = frame_program(min, max, feed, &placement)?;
+    let control = state.job_control.clone();
+    control.reset();
+    let outcome = controller.run_program(&lines, &control, &mut |_| {});
+    if outcome.is_err() {
+        // The controller was reset: a remembered machine position may no longer be valid.
+        state.clear_user_origin();
+    }
+    outcome.map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 pub fn machine_start(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Everything is verified before the job thread is spawned.
-    let lines = {
+    let (lines, relative) = {
         let generated = lock(&state.generated)?;
         let job = generated
             .as_ref()
@@ -224,8 +311,11 @@ pub fn machine_start(app: tauri::AppHandle, state: State<'_, AppState>) -> Resul
                     .to_string(),
             );
         }
-        job.lines.clone()
+        let relative = relative_placement(&state, &project)?;
+        (job.lines.clone(), relative)
     };
+    // Every run clears a stale G92 offset; the relative modes also place the job around the head.
+    let lines = place_program(&lines, relative.as_ref())?;
 
     {
         let controller = state.controller()?;
@@ -246,6 +336,7 @@ pub fn machine_start(app: tauri::AppHandle, state: State<'_, AppState>) -> Resul
     let controller = state.controller.clone();
     let control = state.job_control.clone();
     let running = RunningGuard(state.job_running.clone());
+    let user_origin = state.user_origin.clone();
 
     std::thread::spawn(move || {
         let _running = running;
@@ -260,6 +351,10 @@ pub fn machine_start(app: tauri::AppHandle, state: State<'_, AppState>) -> Resul
         match outcome {
             Ok(()) | Err(MachineError::Aborted) => {} // Completed / Aborted already emitted
             Err(e) => {
+                // The controller was reset: a remembered machine position may no longer be valid.
+                if let Ok(mut origin) = user_origin.lock() {
+                    *origin = None;
+                }
                 let _ = app.emit(
                     "job-event",
                     JobEventPayload::Failed {
@@ -297,6 +392,7 @@ pub fn machine_resume(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn machine_stop(state: State<'_, AppState>) -> Result<(), String> {
     state.job_control.request_abort();
+    state.clear_user_origin();
     realtime(&state)?.stop().map_err(|e| e.to_string())
 }
 
@@ -310,6 +406,77 @@ mod tests {
         assert_eq!(json, r#"{"type":"progress","done":3,"total":9}"#);
         let json = serde_json::to_string(&JobEventPayload::Completed).unwrap();
         assert_eq!(json, r#"{"type":"completed"}"#);
+    }
+
+    fn project_with_a_square(start_from: &str) -> ProjectFile {
+        use makerlaser_common::{LayerKind, Path2D, WorkspaceObject};
+        let mut p = crate::state::default_project();
+        let layer = p
+            .layers
+            .iter()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .id;
+        let square = Path2D::new(
+            vec![
+                Point2::new(10.0, 20.0),
+                Point2::new(40.0, 20.0),
+                Point2::new(40.0, 60.0),
+                Point2::new(10.0, 60.0),
+            ],
+            true,
+        );
+        let mut o = WorkspaceObject::new_vector("sq", vec![square], 0);
+        o.layer_id = Some(layer);
+        p.objects.push(o);
+        let settings = format!(
+            r#"{{"units":"mm","grid_spacing_mm":10.0,"show_grid":true,"show_origin":true,"start_from":"{start_from}","job_origin":"center"}}"#
+        );
+        p.settings = serde_json::from_str(&settings).unwrap();
+        p
+    }
+
+    #[test]
+    fn absolute_start_from_has_no_placement() {
+        let state = AppState::default();
+        let project = crate::state::default_project();
+        assert!(relative_placement(&state, &project).unwrap().is_none());
+    }
+
+    #[test]
+    fn current_position_anchors_the_job_origin_in_machine_coordinates() {
+        let state = AppState::default();
+        let project = project_with_a_square("current_position");
+        // The artwork spans X 10..40, Y 20..60 on screen; its centre is (25, 40), which is
+        // (25, 260) on a 300 mm bed with the origin at the bottom left.
+        let p = relative_placement(&state, &project).unwrap().unwrap();
+        assert_eq!(
+            p,
+            Placement {
+                anchor: (25.0, 260.0),
+                user_origin: None
+            }
+        );
+    }
+
+    #[test]
+    fn user_origin_start_needs_a_stored_user_origin() {
+        let state = AppState::default();
+        let project = project_with_a_square("user_origin");
+        let err = relative_placement(&state, &project).unwrap_err();
+        assert!(err.contains("no user origin is set"), "{err}");
+        *state.user_origin.lock().unwrap() = Some((120.0, 80.0));
+        let p = relative_placement(&state, &project).unwrap().unwrap();
+        assert_eq!(p.user_origin, Some((120.0, 80.0)));
+    }
+
+    #[test]
+    fn a_relative_start_with_nothing_to_place_is_refused() {
+        let state = AppState::default();
+        let mut project = project_with_a_square("current_position");
+        project.objects.clear();
+        let err = relative_placement(&state, &project).unwrap_err();
+        assert!(err.contains("Nothing to place"), "{err}");
     }
 
     #[test]

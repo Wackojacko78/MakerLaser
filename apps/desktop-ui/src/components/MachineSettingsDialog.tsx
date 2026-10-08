@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
+import { JobPlacementFields } from '@/components/JobPlacementFields';
 import { MachineConnectionFields } from '@/components/MachineConnectionFields';
 import { machineSummary } from '@/lib/selectionInfo';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -217,6 +218,8 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
           must match GRBL's <code>$30</code>.
         </p>
 
+        <h3>Job placement</h3>
+        <JobPlacementFields />
         <h3>View</h3>
         <div className="grid wide">
           <label>Show grid</label>
