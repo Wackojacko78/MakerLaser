@@ -335,7 +335,7 @@ export function buildTestGrid(input: TestGridInput, newId: () => string = defaul
   let x0 = o.x;
   let y0 = o.y;
   let x1 = o.x + widthMm;
-  let y1 = o.y + heightMm;
+  const y1 = o.y + heightMm;
 
   if (o.labels) {
     const labelPaths: Path2D[] = [];
