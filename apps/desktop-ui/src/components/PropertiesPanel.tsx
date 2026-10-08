@@ -1,4 +1,5 @@
 import { NumberField } from '@/components/NumberField';
+import { SelectionStats } from '@/components/SelectionStats';
 import { boundsHeight, boundsWidth, unionBounds, worldBounds } from '@/lib/transform';
 import { useProjectStore } from '@/state/projectStore';
 import type { Bounds } from '@/lib/transform';
@@ -56,6 +57,7 @@ export function PropertiesPanel() {
               onCommit={(v) => boundsHeight(box!) > 1e-9 && resize(1, v / boundsHeight(box!))}
             />
           </div>
+          <SelectionStats objects={chosen} units={project.settings.units} />
           <div className="field-row wide">
             <button onClick={() => rotate(-90)} title="Rotate 90° anticlockwise">⟲ 90°</button>
             <button onClick={() => rotate(90)} title="Rotate 90° clockwise">⟳ 90°</button>

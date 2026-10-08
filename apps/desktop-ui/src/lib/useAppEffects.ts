@@ -11,6 +11,7 @@ import {
   saveFlow,
 } from '@/lib/actions';
 import { useJobStore } from '@/state/jobStore';
+import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
 import type { JobEventPayload } from '@/types/domain';
 
@@ -75,7 +76,15 @@ export function useShortcuts(): void {
         e.preventDefault();
         store.removeSelected();
       } else if (e.key === 'Escape') {
-        store.clearSelection();
+        // In the Measure tool Esc clears the measurement first, then leaves the tool.
+        const measure = useMeasureStore.getState();
+        if (measure.tool !== 'measure') store.clearSelection();
+        else if (measure.picks.length > 0) measure.clear();
+        else measure.setTool('select');
+      } else if (key === 'm') {
+        useMeasureStore.getState().setTool('measure');
+      } else if (key === 'v') {
+        useMeasureStore.getState().setTool('select');
       } else if (e.key.startsWith('Arrow')) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;

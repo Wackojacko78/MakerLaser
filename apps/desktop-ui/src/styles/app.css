@@ -160,3 +160,17 @@ table.summary td { text-align: right; padding: 3px 0; }
 .splash { height: 100vh; display: grid; place-content: center; text-align: center; font-size: 30px; }
 .splash span { color: var(--accent); }
 .splash .fatal { color: #ff8f98; font-size: 14px; max-width: 520px; }
+
+/* measure tool */
+.workspace.measuring { cursor: crosshair; }
+.workspace.measuring .canvas-hint { display: none; }
+.cursor-chip { position: absolute; right: 10px; bottom: 8px; background: #0c151dcc; padding: 3px 8px; border-radius: 5px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; pointer-events: none; }
+.measure-panel { position: absolute; left: 10px; top: 10px; width: 260px; background: #0c151de6; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; pointer-events: none; }
+.measure-panel button { pointer-events: auto; }
+.measure-head { display: flex; align-items: center; justify-content: space-between; color: var(--accent); }
+.measure-rows { width: 100%; border-collapse: collapse; margin: 6px 0 2px; }
+.measure-rows th { text-align: left; color: var(--muted); font-weight: 400; padding: 2px 0; }
+.measure-rows td { text-align: right; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.stats { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
+.stat-row { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.stat-row b { color: var(--text); font-weight: 600; }

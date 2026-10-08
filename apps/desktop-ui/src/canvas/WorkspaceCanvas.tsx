@@ -2,11 +2,15 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Circle, Group, Image as KImage, Layer as KLayer, Line, Rect, Shape, Stage, Text, Transformer } from 'react-konva';
 import useImage from 'use-image';
+import { MeasureOverlay } from '@/canvas/MeasureOverlay';
 import { ToolpathOverlay } from '@/canvas/ToolpathOverlay';
+import { MeasureReadout } from '@/components/MeasureReadout';
 import { PX_PER_MM } from '@/lib/constants';
+import { SNAP_PX, freePoint, snapAt, type MeasureItem } from '@/lib/measure';
 import { api } from '@/lib/tauri';
 import { compose, decompose, fitView, imageSizeMm, objectsInBox, originInfo } from '@/lib/transform';
 import { useJobStore } from '@/state/jobStore';
+import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
 import { useViewStore } from '@/state/viewStore';
 import type { ImageObjectData, Path2D, Transform2D, WorkspaceObject } from '@/types/domain';
@@ -141,6 +145,8 @@ export function WorkspaceCanvas() {
   const result = useJobStore((s) => s.result);
   const showPreview = useJobStore((s) => s.showPreview);
   const replay = useJobStore((s) => s.replay);
+  const measuring = useMeasureStore((s) => s.tool === 'measure');
+  const revision = useProjectStore((s) => s.revision);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -182,13 +188,20 @@ export function WorkspaceCanvas() {
     const transformer = transformerRef.current;
     if (!stage || !transformer || !project) return;
     const editable = new Set(project.objects.filter((o) => o.visible && !o.locked).map((o) => o.id));
-    const nodes = selected
+    // The Measure tool picks points: nothing can be dragged, resized or rotated while it is on.
+    const ids: string[] = measuring ? [] : selected;
+    const nodes = ids
       .filter((id) => editable.has(id))
       .map((id) => stage.findOne((n: Konva.Node) => n.id() === id))
       .filter((n): n is Konva.Node => !!n);
     transformer.nodes(nodes);
     transformer.getLayer()?.batchDraw();
-  }, [selected, project]);
+  }, [selected, project, measuring]);
+
+  // A measurement belongs to the drawing it was made on: any change (a move, undo, a new file) clears it.
+  useEffect(() => {
+    useMeasureStore.getState().clear();
+  }, [revision]);
 
   // Persist the position/rotation/scale of every selected node in ONE undo step. Konva
   // fires drag/transform end once per node, so the commit is coalesced to a microtask.
@@ -236,11 +249,31 @@ export function WorkspaceCanvas() {
 
   const worldPointer = () => layerRef.current?.getRelativePointerPosition() ?? null;
 
+  /** What a click would pick here: a snap point or line, or (with Shift held) the exact point under the pointer. */
+  const measureHit = (shift: boolean): MeasureItem | null => {
+    const p = worldPointer();
+    if (!p || !project) return null;
+    const cursor = { x: p.x / PX_PER_MM, y: p.y / PX_PER_MM };
+    if (shift) return freePoint(cursor);
+    const tolMm = SNAP_PX / (useViewStore.getState().scale * PX_PER_MM);
+    return snapAt(project.objects, cursor, { tolMm, bed: { width: bedW, height: bedH } });
+  };
+
   const onMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1) {
       e.evt.preventDefault();
       const v = useViewStore.getState();
       panRef.current = { x: e.evt.clientX, y: e.evt.clientY, viewX: v.x, viewY: v.y };
+      return;
+    }
+    if (measuring) {
+      // The Measure tool: left click picks, right click clears. Nothing is selected, dragged or boxed.
+      if (e.evt.button === 2) {
+        useMeasureStore.getState().clear();
+      } else if (e.evt.button === 0) {
+        const hit = measureHit(e.evt.shiftKey);
+        if (hit) useMeasureStore.getState().addPick(hit);
+      }
       return;
     }
     // Empty canvas (bed, grid and overlays do not listen): start a rubber band.
@@ -253,7 +286,10 @@ export function WorkspaceCanvas() {
     }
   };
 
-  const onMouseMove = () => {
+  const onMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const pointer = worldPointer();
+    useMeasureStore.getState().setCursor(pointer ? { x: pointer.x / PX_PER_MM, y: pointer.y / PX_PER_MM } : null);
+    if (measuring) useMeasureStore.getState().setHover(measureHit(e.evt.shiftKey));
     if (!bandRef.current) return;
     const p = worldPointer();
     if (!p) return;
@@ -299,7 +335,7 @@ export function WorkspaceCanvas() {
     project.layers.find((l) => l.id === o.layer_id)?.color ?? '#9aa7b4';
 
   return (
-    <div className="workspace" ref={wrapRef} onContextMenu={(e) => e.preventDefault()}>
+    <div className={measuring ? 'workspace measuring' : 'workspace'} ref={wrapRef} onContextMenu={(e) => e.preventDefault()}>
       {size.w > 0 && (
         <Stage
           ref={stageRef}
@@ -313,7 +349,11 @@ export function WorkspaceCanvas() {
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={(e: Konva.KonvaEventObject<MouseEvent>) => finishBand(e.evt.shiftKey)}
-          onMouseLeave={() => finishBand(false)}
+          onMouseLeave={() => {
+            finishBand(false);
+            useMeasureStore.getState().setCursor(null);
+            useMeasureStore.getState().setHover(null);
+          }}
         >
           <KLayer ref={layerRef}>
             <Rect
@@ -345,9 +385,10 @@ export function WorkspaceCanvas() {
                     scaleX={d.scaleX}
                     scaleY={d.scaleY}
                     opacity={preview ? 0.3 : 1}
-                    draggable={!o.locked}
+                    draggable={!o.locked && !measuring}
                     onMouseDown={(e: Konva.KonvaEventObject<MouseEvent>) => {
                       if (e.evt.button !== 0) return;
+                      if (measuring) return; // the Measure tool picks points: it must not select or drag
                       e.cancelBubble = true; // do not start a rubber band
                       const already = useProjectStore.getState().selected.includes(o.id);
                       if (e.evt.shiftKey) select(o.id, true);
@@ -390,6 +431,7 @@ export function WorkspaceCanvas() {
               }
             />
 
+            {measuring && <MeasureOverlay viewScale={view.scale} />}
             {band && (
               <Rect
                 listening={false}
@@ -407,6 +449,7 @@ export function WorkspaceCanvas() {
           </KLayer>
         </Stage>
       )}
+      <MeasureReadout />
       <div className="canvas-hint">
         Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift: add to
         selection &middot; Arrows: nudge (Shift = 10 mm)
