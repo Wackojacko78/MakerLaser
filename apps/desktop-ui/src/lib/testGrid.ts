@@ -332,10 +332,10 @@ export function buildTestGrid(input: TestGridInput, newId: () => string = defaul
     });
   });
 
-  const x0 = o.x;
-  const y0 = o.y;
-  const x1 = o.x + widthMm;
-  const y1 = o.y + heightMm;
+  let x0 = o.x;
+  let y0 = o.y;
+  let x1 = o.x + widthMm;
+  let y1 = o.y + heightMm;
 
   if (o.labels) {
     const labelPaths: Path2D[] = [];
