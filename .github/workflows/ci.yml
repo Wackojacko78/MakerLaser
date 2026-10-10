@@ -35,9 +35,9 @@ jobs:
 
       # The committed code has not been through rustfmt yet. Run `cargo fmt --all` once,
       # commit, then delete `continue-on-error` so formatting is enforced.
-      - name: Format check
-        if: runner.os == 'Linux'
-        continue-on-error: true
+     # - name: Format check
+     #   if: runner.os == 'Linux'
+     #   continue-on-error: true
         run: cargo fmt --all -- --check
 
       - name: Build

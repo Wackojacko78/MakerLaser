@@ -18,7 +18,9 @@ use serde::Serialize;
 use tauri::{Emitter, State};
 
 use crate::console::{changes_machine_coordinates, check_console_line};
-use crate::placement::{frame_laser_s, frame_program, laser_frame_program, place_program, Placement};
+use crate::placement::{
+    frame_laser_s, frame_program, laser_frame_program, place_program, Placement,
+};
 use crate::state::{fingerprint, lock, AppState, POISONED};
 
 const FRAME_FEED_MM_MIN: f64 = 3000.0;
@@ -238,10 +240,7 @@ pub fn machine_clear_user_origin(state: State<'_, AppState>) -> Result<(), Strin
 /// at that low power (at most `FRAME_LASER_MAX_PERCENT`) for the trace, so the outline can be seen
 /// on the material. Refuses an empty job or one outside the bed.
 #[tauri::command(async)]
-pub fn machine_frame(
-    state: State<'_, AppState>,
-    laser_percent: Option<f64>,
-) -> Result<(), String> {
+pub fn machine_frame(state: State<'_, AppState>, laser_percent: Option<f64>) -> Result<(), String> {
     let (min, max, feed, relative, laser_s) = {
         let project = lock(&state.project)?;
         let extent = project

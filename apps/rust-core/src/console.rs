@@ -106,7 +106,17 @@ mod tests {
 
     #[test]
     fn ordinary_commands_pass_and_are_trimmed() {
-        for ok in ["$$", "$32=1", "  $I  ", "G0 X10 Y10", "g1 x5 f100", "M5", "M8", "$H", "$X"] {
+        for ok in [
+            "$$",
+            "$32=1",
+            "  $I  ",
+            "G0 X10 Y10",
+            "g1 x5 f100",
+            "M5",
+            "M8",
+            "$H",
+            "$X",
+        ] {
             assert_eq!(check_console_line(ok).unwrap(), ok.trim(), "{ok}");
         }
     }
@@ -136,7 +146,15 @@ mod tests {
 
     #[test]
     fn nothing_that_switches_the_laser_on_gets_through() {
-        for bad in ["M3 S10", "m4", "M03", "M04 S5", "G1 X5 M4 S10", "G1X5M3", "M 4"] {
+        for bad in [
+            "M3 S10",
+            "m4",
+            "M03",
+            "M04 S5",
+            "G1 X5 M4 S10",
+            "G1X5M3",
+            "M 4",
+        ] {
             let err = check_console_line(bad).unwrap_err();
             assert!(err.contains("M3 and M4"), "{bad}: {err}");
         }
@@ -144,7 +162,16 @@ mod tests {
 
     #[test]
     fn other_m_words_and_comments_are_not_mistaken_for_laser_on() {
-        for ok in ["M5", "M30", "M8", "M9", "M2", "( M3 ) G0 X1", "G0 X1 ; M4 later", "M5 M8"] {
+        for ok in [
+            "M5",
+            "M30",
+            "M8",
+            "M9",
+            "M2",
+            "( M3 ) G0 X1",
+            "G0 X1 ; M4 later",
+            "M5 M8",
+        ] {
             assert!(check_console_line(ok).is_ok(), "{ok}");
         }
     }
@@ -164,7 +191,9 @@ mod tests {
         for yes in ["$H", "$h", "$3=2", "$10=1", "$13=0", "$23=1", "$ 23 = 1"] {
             assert!(changes_machine_coordinates(yes), "{yes}");
         }
-        for no in ["$$", "$32=1", "$100=80", "$130=300", "$X", "G0 X1", "$3", "M5"] {
+        for no in [
+            "$$", "$32=1", "$100=80", "$130=300", "$X", "G0 X1", "$3", "M5",
+        ] {
             assert!(!changes_machine_coordinates(no), "{no}");
         }
     }

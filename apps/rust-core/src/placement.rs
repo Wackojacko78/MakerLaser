@@ -455,8 +455,8 @@ mod tests {
 
     #[test]
     fn the_laser_frame_around_the_head_lights_only_the_trace() {
-        let out =
-            laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, Some(&current()), 10).unwrap();
+        let out = laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, Some(&current()), 10)
+            .unwrap();
         assert_eq!(
             out,
             lines(&[
@@ -512,14 +512,9 @@ mod tests {
     #[test]
     fn the_laser_is_never_on_during_a_rapid_move_and_is_off_at_the_end() {
         for placement in [None, Some(current()), Some(user())] {
-            let out = laser_frame_program(
-                (10.0, 260.0),
-                (40.0, 290.0),
-                3000.0,
-                placement.as_ref(),
-                10,
-            )
-            .unwrap();
+            let out =
+                laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, placement.as_ref(), 10)
+                    .unwrap();
             let (rapids_with_laser_on, on_at_the_end) = laser_trace(&out);
             assert!(rapids_with_laser_on.is_empty(), "{rapids_with_laser_on:?}");
             assert!(!on_at_the_end, "{out:?}");

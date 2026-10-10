@@ -378,17 +378,18 @@ fn command_timeout(line: &str) -> Duration {
 
 /// Sends one typed line and collects what the controller printed before its `ok`: for `$$`, the
 /// settings. An `error:` or `ALARM:` answer is an error. STOP (through `control`) ends the wait.
-fn send_command_on<L: Link>(
-    link: &mut L,
-    line: &str,
-    control: &JobControl,
-) -> Result<Vec<String>> {
+fn send_command_on<L: Link>(link: &mut L, line: &str, control: &JobControl) -> Result<Vec<String>> {
     link.discard_pending();
     link.send(format!("{line}\n").as_bytes())?;
     let mut replies = Vec::new();
-    await_ack(link, command_timeout(line), Some(control), &mut |reply: &str| {
-        replies.push(reply.to_string());
-    })?;
+    await_ack(
+        link,
+        command_timeout(line),
+        Some(control),
+        &mut |reply: &str| {
+            replies.push(reply.to_string());
+        },
+    )?;
     Ok(replies)
 }
 
@@ -791,7 +792,12 @@ mod tests {
             fn send(&mut self, bytes: &[u8]) -> Result<()> {
                 self.sent
                     .push(String::from_utf8_lossy(bytes).trim().to_string());
-                let script = ["<Idle|MPos:0.000,0.000,0.000|FS:0,0>", "$0=10", "$32=1", "ok"];
+                let script = [
+                    "<Idle|MPos:0.000,0.000,0.000|FS:0,0>",
+                    "$0=10",
+                    "$32=1",
+                    "ok",
+                ];
                 self.out.extend(script.iter().map(|line| line.to_string()));
                 Ok(())
             }
