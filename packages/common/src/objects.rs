@@ -182,7 +182,10 @@ impl WorkspaceObject {
         WorkspaceObject {
             id: Uuid::new_v4(),
             name: name.into(),
-            kind: ObjectKind::Vector(VectorData { paths, source: None }),
+            kind: ObjectKind::Vector(VectorData {
+                paths,
+                source: None,
+            }),
             transform: Transform2D::IDENTITY,
             layer_id: None,
             visible: true,
@@ -325,7 +328,10 @@ mod tests {
             }));
         }
         let json = serde_json::to_string(&obj).unwrap();
-        assert!(json.contains(r#""source":{"type":"shape","shape":"rectangle""#), "{json}");
+        assert!(
+            json.contains(r#""source":{"type":"shape","shape":"rectangle""#),
+            "{json}"
+        );
         let back: WorkspaceObject = serde_json::from_str(&json).unwrap();
         assert_eq!(back, obj);
         for (kind, name) in [
