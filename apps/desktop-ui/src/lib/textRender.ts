@@ -30,7 +30,10 @@ const MAX_CANVAS_PIXELS = 24_000_000;
 
 function family(name: string): string {
   const clean = name.replace(/["'\\;{}]/g, '').trim();
-  return clean === '' ? 'sans-serif' : `"${clean}", sans-serif`;
+  if (clean === '') return 'sans-serif';
+  // The generic families must not be quoted: "serif" in quotes is a font named serif, not the generic one.
+  if (/^(sans-serif|serif|monospace)$/i.test(clean)) return clean.toLowerCase();
+  return `"${clean}", sans-serif`;
 }
 
 /** Problems with the settings (empty when valid). */

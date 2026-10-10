@@ -19,8 +19,16 @@ const LINUX_FONTS = [
 
 const unique = (names: readonly string[]) => names.filter((n, i) => names.findIndex((m) => m.toLowerCase() === n.toLowerCase()) === i);
 
+/** More fonts that are common on Windows and Mac, so more of the installed fonts are found. */
+const MORE_SYSTEM_FONTS = [
+  'Trebuchet MS', 'Comic Sans MS', 'Lucida Console', 'Lucida Sans Unicode', 'Palatino Linotype', 'Book Antiqua',
+  'Garamond', 'Century Gothic', 'Franklin Gothic Medium', 'Cambria', 'Candara', 'Corbel', 'Constantia', 'Rockwell',
+  'Gill Sans', 'Futura', 'Optima', 'Baskerville', 'Didot', 'Brush Script MT', 'Copperplate', 'Papyrus',
+  'Segoe Print', 'Segoe Script', 'Ink Free', 'Bahnschrift', 'Cascadia Code', 'Cascadia Mono',
+];
+
 /** Every font worth checking for, on any platform. Only the ones that are installed are shown. */
-export const CANDIDATE_FONTS: readonly string[] = unique([...WINDOWS_FONTS, ...MAC_FONTS, ...LINUX_FONTS]);
+export const CANDIDATE_FONTS: readonly string[] = unique([...WINDOWS_FONTS, ...MAC_FONTS, ...LINUX_FONTS, ...MORE_SYSTEM_FONTS]);
 
 /** CSS generic families: always available, so there is always something to pick. */
 export const GENERIC_FONTS: readonly string[] = ['sans-serif', 'serif', 'monospace'];

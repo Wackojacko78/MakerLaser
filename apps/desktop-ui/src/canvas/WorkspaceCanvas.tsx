@@ -2,13 +2,19 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Circle, Group, Image as KImage, Layer as KLayer, Line, Rect, Shape, Stage, Text, Transformer } from 'react-konva';
 import useImage from 'use-image';
+import { DrawPreview } from '@/canvas/DrawPreview';
+import { finishDrawing } from '@/canvas/drawActions';
+import { openEditorAt, openEditorForKey } from '@/canvas/editActions';
 import { MeasureOverlay } from '@/canvas/MeasureOverlay';
 import { ToolpathOverlay } from '@/canvas/ToolpathOverlay';
+import { CanvasEditor } from '@/components/CanvasEditor';
 import { MeasureReadout } from '@/components/MeasureReadout';
 import { PX_PER_MM } from '@/lib/constants';
+import type { Draft } from '@/lib/inlineEdit';
 import { SNAP_PX, freePoint, snapAt, type MeasureItem } from '@/lib/measure';
 import { api } from '@/lib/tauri';
 import { compose, decompose, fitView, imageSizeMm, objectsInBox, originInfo } from '@/lib/transform';
+import { useEditStore } from '@/state/editStore';
 import { useJobStore } from '@/state/jobStore';
 import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -146,6 +152,8 @@ export function WorkspaceCanvas() {
   const showPreview = useJobStore((s) => s.showPreview);
   const replay = useJobStore((s) => s.replay);
   const measuring = useMeasureStore((s) => s.tool === 'measure');
+  const openEdit = useEditStore((s) => s.open);
+  const drawTool = useEditStore((s) => s.tool);
   const revision = useProjectStore((s) => s.revision);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -159,6 +167,11 @@ export function WorkspaceCanvas() {
 
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [band, setBand] = useState<Band | null>(null);
+  // A shape being dragged out with a drawing tool, and where the canvas sits on the screen (the
+  // floating editor is positioned from it).
+  const draftRef = useRef<Draft | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [canvasPos, setCanvasPos] = useState({ left: 0, top: 0 });
 
   const bedW = project?.machine.bed_width_mm ?? 0;
   const bedH = project?.machine.bed_height_mm ?? 0;
@@ -169,6 +182,8 @@ export function WorkspaceCanvas() {
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
       setSize({ w: Math.floor(entry.contentRect.width), h: Math.floor(entry.contentRect.height) });
+      const box = entry.target.getBoundingClientRect();
+      setCanvasPos({ left: box.left, top: box.top });
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -247,6 +262,38 @@ export function WorkspaceCanvas() {
     };
   }, []);
 
+  // Finishes a drag or click with a drawing tool: the shape (or the text) is added.
+  const finishDraft = () => {
+    const d = draftRef.current;
+    draftRef.current = null;
+    setDraft(null);
+    if (d) finishDrawing(d, useViewStore.getState().scale);
+  };
+
+  // Enter or F2 opens the editor of the selected text or shape.
+  useEffect(() => {
+    window.addEventListener('keydown', openEditorForKey);
+    return () => window.removeEventListener('keydown', openEditorForKey);
+  }, []);
+
+  // Esc leaves a drawing tool (and cancels a drag in progress); V goes back to Select.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target;
+      const typing =
+        el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if (typing) return;
+      const selectKey = (e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (e.key !== 'Escape' && !selectKey) return;
+      if (useEditStore.getState().tool === null && draftRef.current === null) return;
+      draftRef.current = null;
+      setDraft(null);
+      useEditStore.getState().setTool(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const worldPointer = () => layerRef.current?.getRelativePointerPosition() ?? null;
 
   /** What a click would pick here: a snap point or line, or (with Shift held) the exact point under the pointer. */
@@ -276,6 +323,18 @@ export function WorkspaceCanvas() {
       }
       return;
     }
+    // A drawing tool is picked: this press starts a new shape (or text), even over existing artwork.
+    if (drawTool !== null) {
+      if (e.evt.button === 0) {
+        const p = worldPointer();
+        if (p) {
+          const at = { x: p.x / PX_PER_MM, y: p.y / PX_PER_MM };
+          draftRef.current = { tool: drawTool, x0: at.x, y0: at.y, x1: at.x, y1: at.y, square: e.evt.shiftKey };
+          setDraft(draftRef.current);
+        }
+      }
+      return;
+    }
     // Empty canvas (bed, grid and overlays do not listen): start a rubber band.
     if (e.evt.button === 0 && e.target === e.target.getStage()) {
       if (!e.evt.shiftKey) clearSelection();
@@ -290,6 +349,15 @@ export function WorkspaceCanvas() {
     const pointer = worldPointer();
     useMeasureStore.getState().setCursor(pointer ? { x: pointer.x / PX_PER_MM, y: pointer.y / PX_PER_MM } : null);
     if (measuring) useMeasureStore.getState().setHover(measureHit(e.evt.shiftKey));
+    const d = draftRef.current;
+    if (d) {
+      // Dragging out a shape: the preview follows the pointer.
+      if (pointer) {
+        draftRef.current = { ...d, x1: pointer.x / PX_PER_MM, y1: pointer.y / PX_PER_MM, square: e.evt.shiftKey };
+        setDraft(draftRef.current);
+      }
+      return;
+    }
     if (!bandRef.current) return;
     const p = worldPointer();
     if (!p) return;
@@ -335,7 +403,20 @@ export function WorkspaceCanvas() {
     project.layers.find((l) => l.id === o.layer_id)?.color ?? '#9aa7b4';
 
   return (
-    <div className={measuring ? 'workspace measuring' : 'workspace'} ref={wrapRef} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      className={measuring ? 'workspace measuring' : 'workspace'}
+      ref={wrapRef}
+      style={drawTool !== null && !measuring ? { cursor: 'crosshair' } : undefined}
+      onDoubleClick={() => {
+        // The browser's own double-click fires wherever the two clicks land. Konva's needs both
+        // clicks on the very same drawn shape, which text and thin outlines often miss.
+        const p = layerRef.current?.getRelativePointerPosition();
+        if (p && !measuring && drawTool === null) {
+          openEditorAt({ x: p.x / PX_PER_MM, y: p.y / PX_PER_MM }, useViewStore.getState().scale);
+        }
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {size.w > 0 && (
         <Stage
           ref={stageRef}
@@ -348,8 +429,12 @@ export function WorkspaceCanvas() {
           onWheel={onWheel}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
-          onMouseUp={(e: Konva.KonvaEventObject<MouseEvent>) => finishBand(e.evt.shiftKey)}
+          onMouseUp={(e: Konva.KonvaEventObject<MouseEvent>) => {
+            finishDraft();
+            finishBand(e.evt.shiftKey);
+          }}
           onMouseLeave={() => {
+            finishDraft();
             finishBand(false);
             useMeasureStore.getState().setCursor(null);
             useMeasureStore.getState().setHover(null);
@@ -385,10 +470,11 @@ export function WorkspaceCanvas() {
                     scaleX={d.scaleX}
                     scaleY={d.scaleY}
                     opacity={preview ? 0.3 : 1}
-                    draggable={!o.locked && !measuring}
+                    draggable={!o.locked && !measuring && drawTool === null}
                     onMouseDown={(e: Konva.KonvaEventObject<MouseEvent>) => {
                       if (e.evt.button !== 0) return;
                       if (measuring) return; // the Measure tool picks points: it must not select or drag
+                      if (drawTool !== null) return; // a drawing tool starts a new shape instead
                       e.cancelBubble = true; // do not start a rubber band
                       const already = useProjectStore.getState().selected.includes(o.id);
                       if (e.evt.shiftKey) select(o.id, true);
@@ -396,6 +482,10 @@ export function WorkspaceCanvas() {
                     }}
                     onDragEnd={scheduleCommit}
                     onTransformEnd={scheduleCommit}
+                    onDblClick={() => {
+                      // Double-click text or a shape to edit what it was made from.
+                      if (!measuring && !o.locked && o.kind.type === 'vector' && o.kind.source) openEdit(o.id);
+                    }}
                   >
                     {o.kind.type === 'vector' ? (
                       <VectorShape paths={o.kind.paths} color={layerColor(o)} />
@@ -431,6 +521,7 @@ export function WorkspaceCanvas() {
               }
             />
 
+            <DrawPreview draft={draft} viewScale={view.scale} />
             {measuring && <MeasureOverlay viewScale={view.scale} />}
             {band && (
               <Rect
@@ -450,9 +541,10 @@ export function WorkspaceCanvas() {
         </Stage>
       )}
       <MeasureReadout />
+      <CanvasEditor container={{ left: canvasPos.left, top: canvasPos.top, width: size.w, height: size.h }} />
       <div className="canvas-hint">
         Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift: add to
-        selection &middot; Arrows: nudge (Shift = 10 mm)
+        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; R E P S T: draw &middot; Esc: leave a drawing tool
       </div>
     </div>
   );

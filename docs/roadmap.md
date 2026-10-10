@@ -18,6 +18,9 @@ Since 0.1.0:
 * Linux notes (docs/linux.md) and an Ubuntu job in CI.
 * Frame with the laser on at low power (off by default; docs/framing.md).
 * Console command box: read and change controller settings, for example `$$` and `$32=1` (docs/console.md).
+* Shapes and text drawn straight on the canvas (drag or click, type sizes, Tab between boxes) and edited in place (docs/shapes-and-text.md).
+* 35 built-in fonts and a grouped font list (docs/fonts.md).
+* Tool shortcuts (R, E, P, S, T) and a Travel switch for the toolpath preview (docs/preview.md).
 
 ## Next
 
@@ -28,9 +31,8 @@ Since 0.1.0:
 
 ## Soon
 
-* Shape objects (rectangle, ellipse, polygon). They resolve to `VectorData`, so the CAM engine
-  does not change.
-* Ramped power and the fill outline pass are done (see Done), awaiting their first test on the laser.
+Shapes can now be drawn on the canvas (see Done).
+* Ramped power and a perimeter/outline fill mode.
 * SVG `<use>` and DXF `INSERT` (blocks), so imports stop losing geometry.
 * Inch display and a units setting wired into the UI (check what is already done).
 * Recent files (check what is already done).

@@ -404,7 +404,7 @@ export function MachineConsole() {
           <small className="legend">
             <span style={{ color: '#ff4d4d' }}>■ cut</span> <span style={{ color: '#4d9bff' }}>■ score</span>{' '}
             <span style={{ color: '#2fd57b' }}>■ fill</span> <span style={{ color: '#b57bff' }}>■ engrave</span>{' '}
-            <span style={{ color: '#7d8a97' }}>┄ travel</span> <span style={{ color: '#ffb020' }}>■ outside bed</span>
+            <span style={{ color: '#7d8a97' }}>┄ travel and overscan</span> <span style={{ color: '#ffb020' }}>■ outside bed</span>
           </small>
         </div>
       </div>
