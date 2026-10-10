@@ -195,7 +195,10 @@ mod tests {
         .unwrap();
         let r = check_project(&p);
         assert!(r.is_safe_to_run());
-        assert!(r.warnings.iter().any(|w| w.contains("Overscan adds up to 3.0 mm")));
+        assert!(r
+            .warnings
+            .iter()
+            .any(|w| w.contains("Overscan adds up to 3.0 mm")));
     }
 
     #[test]

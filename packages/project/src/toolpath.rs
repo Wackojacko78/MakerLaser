@@ -1295,10 +1295,7 @@ mod tests {
         let with = generate(&fill_project(vec![square(50.0, 50.0, 10.0)], 1.0, 3.0));
         assert_eq!(burns(&with), burns(&plain));
         let segs = &with.toolpath.segments;
-        let first_burn = segs
-            .iter()
-            .position(|s| s.kind == MoveKind::Fill)
-            .unwrap();
+        let first_burn = segs.iter().position(|s| s.kind == MoveKind::Fill).unwrap();
         let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
         // Run-up: 3 mm before the first burn, on the same scan line, laser off.
         let run_up = &segs[first_burn - 1];
@@ -1340,9 +1337,7 @@ mod tests {
             }
         }
         // The left-hand side has room, so those run-ups and run-outs are kept.
-        assert!(dark_moves(&r)
-            .iter()
-            .any(|s| s.from.x.min(s.to.x) < 288.0));
+        assert!(dark_moves(&r).iter().any(|s| s.from.x.min(s.to.x) < 288.0));
     }
 
     #[test]
