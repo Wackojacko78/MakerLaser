@@ -1,29 +1,49 @@
 # Roadmap
 
-## Next (finish 0.1)
-1. First clean `npm run verify` on a developer machine; commit lockfiles.
-2. Hardware bring-up on the TTS-55 Pro following `SAFETY.md`; record what Pause does with the
-   beam; tune the starter material presets.
-3. Visual polish after the first real run of the UI.
-4. Tighten CSP, enable `clippy -D warnings`, enforce `cargo fmt` in CI.
+## Done (in main)
+
+Since 0.1.0:
+
+* Measure tool: snapping, point and line measurements, selection size.
+* Start From (absolute, current position, user origin) and Job Origin.
+* Overscan for fill and image layers (laser-off run-up and run-out).
+* Material test grid (speed x power) generator.
+* Text objects.
+* Auto-arrange.
+* Run order control (engrave, score, then cut, or your own order).
+* "Unsaved changes" prompt when closing.
+* Machine connection settings: USB serial, WebSocket, Telnet (FluidNC).
+* Machine and material catalogues, config import and export.
+* Resizable console and right-hand panel.
+* Linux notes (docs/linux.md) and an Ubuntu job in CI.
+
+## Next
+
+1. Hardware bring-up on the TTS-55 Pro following `SAFETY.md`: verify Start From and overscan on
+   scrap, record what Pause does with the beam, tune the starter material presets.
+2. Frame with the laser on at low power, so the frame is visible on the material.
+3. CI: clippy with `-D warnings`; tighten the CSP.
 
 ## Soon
-* Per-object and per-layer start/end position modes (user origin, current position, absolute).
-* Test-grid generator (speed × power) for new materials.
-* Window-close "unsaved changes" prompt; recent files.
-* Inch display and units setting wired into the UI.
-* Perimeter/outline fill mode, overscan for fast fills, ramped power.
-* DXF `INSERT` (blocks), SVG `<use>` and basic text.
+
+* Shape objects (rectangle, ellipse, polygon). They resolve to `VectorData`, so the CAM engine
+  does not change.
+* Ramped power and a perimeter/outline fill mode.
+* SVG `<use>` and DXF `INSERT` (blocks), so imports stop losing geometry.
+* Inch display and a units setting wired into the UI (check what is already done).
+* Recent files (check what is already done).
 * Installer signing and an auto-updater.
 
 ## Later
-* Text and shape (rectangle, ellipse, polygon) objects. Both resolve to `VectorData`, so the
-  CAM engine does not change.
-* Job nesting/auto-layout; tabs/bridges for cuts.
+
+* Per-object and per-layer start/end position modes (user origin, current position, absolute).
+  Lower priority now that the job-level Start From exists.
+* Tabs/bridges for cuts.
 * Image vectorisation (trace); more dithers; per-object raster settings.
 * Camera alignment.
 * **Ruida** controller driver and **galvo** support (new `Controller` implementations).
 * Plugin/extension API; cloud material library.
 
 ## Known deliberate limits
+
 Single G-code dialect (GRBL 1.1), 2D only, no Z axis.

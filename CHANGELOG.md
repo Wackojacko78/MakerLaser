@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Measure tool: snapping, point and line measurements, selection size.
+- Start From (absolute, current position, user origin) and Job Origin.
+- Overscan for fill and image layers: laser-off run-up and run-out so each scan line is burned at
+  full speed. Sent as `M4 S0` + `G1`, never `M5` + `G0`. See docs/overscan.md.
+- Material test grid (speed x power) generator.
+- Text objects.
+- Auto-arrange.
+- Run order control: engrave, score, then cut, or your own layer order.
+- "Unsaved changes" prompt when closing.
+- Machine connection settings: USB serial, WebSocket and Telnet (FluidNC).
+- Machine and material catalogues; config import and export.
+- Resizable console and right-hand panel.
+
+### Changed
+- Frontend toolchain upgraded to Vite 7 and Vitest 4.
+- CI: actions updated to Node 24 versions, runners pinned to ubuntu-24.04, and CI now runs on
+  pushes to every branch.
+
 ## 0.1.0
 
 First source release. Consolidates and corrects the earlier prototype packages.
