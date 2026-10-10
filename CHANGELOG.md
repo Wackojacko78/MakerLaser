@@ -26,6 +26,9 @@
   Properties panel, to change what it was made from. Position and rotation are kept.
 - Shapes and text are drawn straight on the canvas and edited in place, with no pop-up boxes: pick a
   tool in the Tools panel, drag or click, type the sizes and Tab between the boxes.
+- 35 fonts built in (sans-serif, serif, slab, display, script and monospace) and a grouped font list;
+  more of the fonts installed on the computer are found too. See docs/fonts.md.
+- Fixed: choosing the generic serif or monospace font drew sans-serif.
 
 ### Changed
 - Frontend toolchain upgraded to Vite 7 and Vitest 4.

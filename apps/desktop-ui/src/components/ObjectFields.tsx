@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DimInput } from '@/components/DimInput';
+import { FontSelect } from '@/components/FontSelect';
 import { useObjectEditing } from '@/components/useObjectEditing';
-import { fontChoices, installedFonts, isFontAvailable } from '@/lib/fonts';
 import { readShapeField, shapeFields } from '@/lib/inlineEdit';
 import type { LaserMode } from '@/lib/objectEdit';
 import { SHAPE_KINDS, SHAPE_LABELS } from '@/lib/shapes';
@@ -40,9 +40,7 @@ export function ObjectFields({ id, variant }: Props) {
   const firstBox = useRef<HTMLInputElement>(null);
   const textBox = useRef<HTMLTextAreaElement>(null);
   const [textDraft, setTextDraft] = useState<string | null>(null);
-  const [fontDraft, setFontDraft] = useState<string | null>(null);
   const [nothingToDraw, setNothingToDraw] = useState(false);
-  const fonts = useMemo(() => fontChoices(installedFonts()), []);
 
   // The floating editor takes the cursor each time it opens.
   useEffect(() => {
@@ -124,24 +122,8 @@ export function ObjectFields({ id, variant }: Props) {
         <div style={rowStyle}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span style={{ opacity: 0.8 }}>Font</span>
-            <input
-              list={`makerlaser-fonts-${variant}`}
-              value={fontDraft ?? text.fontFamily}
-              spellCheck={false}
-              style={{ ...fieldStyle, width: 130 }}
-              onChange={(e) => {
-                setFontDraft(e.target.value);
-                // Only a font that is installed is applied, so half-typed names do not flicker.
-                if (isFontAvailable(e.target.value)) edit.setText({ fontFamily: e.target.value });
-              }}
-              onBlur={() => setFontDraft(null)}
-            />
+            <FontSelect value={text.fontFamily} onChange={(family) => edit.setText({ fontFamily: family })} />
           </label>
-          <datalist id={`makerlaser-fonts-${variant}`}>
-            {fonts.map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
           <DimInput
             label="Size"
             unit="mm"
