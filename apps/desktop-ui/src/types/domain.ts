@@ -56,6 +56,10 @@ export interface Layer {
   raster: RasterOperation;
   /** Fill and Image layers: laser-off run-up and run-out past each scan line, in mm. Absent in older files, which means 0. */
   overscan_mm?: number;
+  /** Fill layers: trace the edge of every closed shape once after the fill. Absent in older files, which means off. */
+  fill_outline?: boolean;
+  /** Score layers: power ramp length at the ends of each line, in mm. Absent in older files, which means 0. */
+  ramp_mm?: number;
 }
 
 export interface ImageObjectData {

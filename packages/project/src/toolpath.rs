@@ -35,6 +35,14 @@ const RAPID_FEED_MM_MIN: f64 = 6000.0;
 const OVERSCAN_JOIN_MM: f64 = 10.0;
 /// Overscan moves shorter than this are dropped.
 const OVERSCAN_MIN_MM: f64 = 0.01;
+/// Ramped power (Score layers): a ramp is built from this many equal steps, each burned at one power.
+const RAMP_STEPS: usize = 8;
+/// An open line ramps from this fraction of the layer's power up to the full power (and back down at
+/// its other end), so the very ends of the line are still visible. Closed shapes ramp from nothing,
+/// because the end of the ramp overlaps the start (see `ramp_pieces`).
+const RAMP_OPEN_FLOOR: f64 = 0.2;
+/// A ramp shorter than this is not worth making: the path is burned at full power.
+const RAMP_MIN_MM: f64 = 0.01;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -239,6 +247,35 @@ impl Builder {
         self.dark(run_out, layer);
     }
 
+    /// A burning move at an explicit power. The steps of a ramp use this; otherwise it is `draw`.
+    fn draw_powered(
+        &mut self,
+        from: Point2,
+        to: Point2,
+        kind: MoveKind,
+        layer: &Layer,
+        power_percent: f64,
+    ) {
+        self.travel_to(from);
+        self.toolpath.segments.push(ToolpathSegment {
+            from,
+            to,
+            kind,
+            feed_mm_min: layer.speed_mm_min,
+            power_percent,
+            air_assist: layer.air_assist,
+            overscan: false,
+        });
+        self.cursor = to;
+    }
+
+    /// Draws a path with ramped power at its ends (Score layers; see `ramp_pieces`).
+    fn ramped_path(&mut self, path: &Path2D, kind: MoveKind, layer: &Layer) {
+        for (from, to, fraction) in ramp_pieces(path, layer.ramp_mm) {
+            self.draw_powered(from, to, kind, layer, layer.power_percent * fraction);
+        }
+    }
+
     fn path(&mut self, path: &Path2D, kind: MoveKind, layer: &Layer) {
         if path.points.len() < 2 {
             return;
@@ -254,6 +291,143 @@ impl Builder {
             }
         }
     }
+}
+
+/// One piece of a ramped path: where it runs, and the fraction (above 0, up to 1) of the layer's
+/// power it burns at.
+type RampPiece = (Point2, Point2, f64);
+
+/// The point at distance `s` along a polyline whose running lengths are `cum` (`cum[i]` is the
+/// distance from the start to `points[i]`).
+fn point_along(points: &[Point2], cum: &[f64], s: f64) -> Point2 {
+    let total = cum[cum.len() - 1];
+    let s = s.clamp(0.0, total);
+    let mut i = 0;
+    while i + 2 < points.len() && cum[i + 1] < s {
+        i += 1;
+    }
+    let (a, b) = (points[i], points[i + 1]);
+    let span = cum[i + 1] - cum[i];
+    if span <= 1e-12 {
+        return a;
+    }
+    let t = ((s - cum[i]) / span).clamp(0.0, 1.0);
+    Point2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+}
+
+/// Adds the straight pieces that cover the stretch of the polyline from distance `s0` to `s1`, all
+/// at one power. Every corner inside the stretch ends a piece, so a piece never turns a corner.
+fn stretch(
+    points: &[Point2],
+    cum: &[f64],
+    s0: f64,
+    s1: f64,
+    fraction: f64,
+    out: &mut Vec<RampPiece>,
+) {
+    if s1 - s0 <= 1e-9 {
+        return;
+    }
+    let mut here = point_along(points, cum, s0);
+    for (i, &corner) in points.iter().enumerate().skip(1) {
+        if cum[i] > s0 + 1e-9 && cum[i] < s1 - 1e-9 && here.distance_to(&corner) > 1e-9 {
+            out.push((here, corner, fraction));
+            here = corner;
+        }
+    }
+    let end = point_along(points, cum, s1);
+    if here.distance_to(&end) > 1e-9 {
+        out.push((here, end, fraction));
+    }
+}
+
+/// Splits a path into pieces whose power rises over the first `ramp_mm` and falls over the last
+/// `ramp_mm`, in `RAMP_STEPS` equal steps each. The ramp is never longer than half the path.
+///
+/// * An **open** line starts at `RAMP_OPEN_FLOOR` of the power, rises to the full power and falls
+///   back to that floor at the other end, so both ends are still marked.
+/// * A **closed** shape starts from nothing, runs once round at full power and then carries on over
+///   its first `ramp_mm` again while the power falls. The rise and the fall add up to exactly the
+///   full power at every point of that stretch, so there is no weak spot where the loop closes and
+///   no dark dot where the head starts and stops. It costs `ramp_mm` of extra travel.
+///
+/// The pieces follow one another without a gap, so the head never lifts. A path with fewer than two
+/// distinct points, or no length, gives nothing; a ramp too short to make gives plain full power.
+fn ramp_pieces(path: &Path2D, ramp_mm: f64) -> Vec<RampPiece> {
+    let mut points: Vec<Point2> = Vec::with_capacity(path.points.len() + 1);
+    for &p in &path.points {
+        let keep = match points.last() {
+            Some(q) => q.distance_to(&p) > 1e-9,
+            None => true,
+        };
+        if keep {
+            points.push(p);
+        }
+    }
+    if path.closed {
+        // A closed path may repeat its first point at the end. The closing edge is added exactly once.
+        if points.len() > 1 && points[0].distance_to(&points[points.len() - 1]) <= 1e-9 {
+            points.pop();
+        }
+        if let Some(&first) = points.first() {
+            points.push(first);
+        }
+    }
+    if points.len() < 2 {
+        return Vec::new();
+    }
+    let mut cum = vec![0.0];
+    for w in points.windows(2) {
+        cum.push(cum[cum.len() - 1] + w[0].distance_to(&w[1]));
+    }
+    let total = cum[cum.len() - 1];
+    if total <= 1e-9 {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    // A ramp that is not a number counts as no ramp, rather than as half the path.
+    let wanted = if ramp_mm.is_finite() { ramp_mm } else { 0.0 };
+    let ramp = wanted.min(total / 2.0);
+    if ramp < RAMP_MIN_MM {
+        stretch(&points, &cum, 0.0, total, 1.0, &mut out);
+        return out;
+    }
+    // Where step `i` of a ramp starts, measured from the start of the ramp.
+    let step = |i: usize| ramp * i as f64 / RAMP_STEPS as f64;
+    // The middle of step `i` as a fraction of the way up the ramp.
+    let mid = |i: usize| (i as f64 + 0.5) / RAMP_STEPS as f64;
+
+    if path.closed {
+        for i in 0..RAMP_STEPS {
+            stretch(&points, &cum, step(i), step(i + 1), mid(i), &mut out);
+        }
+        stretch(&points, &cum, ramp, total, 1.0, &mut out);
+        // Round again over the start, with the power falling by what the rise gained.
+        for i in 0..RAMP_STEPS {
+            stretch(&points, &cum, step(i), step(i + 1), 1.0 - mid(i), &mut out);
+        }
+    } else {
+        let span = 1.0 - RAMP_OPEN_FLOOR;
+        for i in 0..RAMP_STEPS {
+            let power = RAMP_OPEN_FLOOR + span * mid(i);
+            stretch(&points, &cum, step(i), step(i + 1), power, &mut out);
+        }
+        stretch(&points, &cum, ramp, total - ramp, 1.0, &mut out);
+        // Where step `i` of the way down starts, ending exactly at the end of the path.
+        let tail = |i: usize| {
+            if i == RAMP_STEPS {
+                total
+            } else {
+                total - ramp + step(i)
+            }
+        };
+        for i in 0..RAMP_STEPS {
+            let power = RAMP_OPEN_FLOOR + span * (1.0 - mid(i));
+            stretch(&points, &cum, tail(i), tail(i + 1), power, &mut out);
+        }
+    }
+    out
 }
 
 /// The point reached by moving from "p" along the unit direction (dx, dy) by up to "max_mm",
@@ -374,7 +548,11 @@ pub fn generate_toolpath(
                     .collect();
                 for _ in 0..passes {
                     for p in &ordered {
-                        b.path(p, MoveKind::Score, layer);
+                        if layer.ramp_mm > 0.0 {
+                            b.ramped_path(p, MoveKind::Score, layer);
+                        } else {
+                            b.path(p, MoveKind::Score, layer);
+                        }
                     }
                 }
             }
@@ -414,6 +592,18 @@ pub fn generate_toolpath(
                                 for (a, z) in row {
                                     b.draw(*a, *z, MoveKind::Fill, layer);
                                 }
+                            }
+                        }
+                        // The outline pass: after the fill, the edge of every closed shape is traced
+                        // once (holes first), so the edge is crisp whatever the fill lines did.
+                        if layer.fill_outline {
+                            let ordered = order_paths(
+                                closed.clone(),
+                                CutOrderStrategy::InsideFirst,
+                                b.cursor,
+                            );
+                            for (outline, _) in ordered {
+                                b.path(&outline, MoveKind::Fill, layer);
                             }
                         }
                     }
@@ -1376,6 +1566,411 @@ mod tests {
         assert!(near(dark[0].from.x, 99.0) && near(dark[0].to.x, 100.0));
         assert!(near(dark[1].from.x, 100.2) && near(dark[1].to.x, 100.3));
         assert!(near(dark[2].from.x, 100.4) && near(dark[2].to.x, 101.4));
+    }
+
+    // ---- fill outline pass ---------------------------------------------------------------
+
+    fn outline_project(paths: Vec<Path2D>, outline: bool) -> ProjectFile {
+        let mut p = project_with(LayerKind::Fill, paths);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap();
+        layer.line_spacing_mm = 1.0;
+        layer.fill_outline = outline;
+        p
+    }
+
+    fn fill_moves(r: &ToolpathResult) -> Vec<&ToolpathSegment> {
+        r.toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+            .collect()
+    }
+
+    fn on_the_edge(q: Point2, lo: f64, hi: f64) -> bool {
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        let inside = |v: f64| v >= lo - 1e-9 && v <= hi + 1e-9;
+        inside(q.x)
+            && inside(q.y)
+            && (near(q.x, lo) || near(q.x, hi) || near(q.y, lo) || near(q.y, hi))
+    }
+
+    #[test]
+    fn the_outline_pass_is_off_unless_a_fill_layer_asks_for_it() {
+        let plain = generate(&outline_project(vec![square(50.0, 50.0, 10.0)], false));
+        assert_eq!(fill_moves(&plain).len(), 10);
+        assert!(!Layer::new("Fill", LayerKind::Fill, 0).fill_outline);
+    }
+
+    #[test]
+    fn an_outline_traces_the_edge_of_the_shape_once_after_the_fill() {
+        let plain = generate(&outline_project(vec![square(50.0, 50.0, 10.0)], false));
+        let with = generate(&outline_project(vec![square(50.0, 50.0, 10.0)], true));
+        let (before, after) = (fill_moves(&plain), fill_moves(&with));
+        assert_eq!(after.len(), before.len() + 4);
+        // The fill lines are exactly what they were, and come first.
+        for (a, b) in before.iter().zip(&after) {
+            assert_eq!((a.from, a.to), (b.from, b.to));
+        }
+        let outline = &after[before.len()..];
+        let mut length = 0.0;
+        for s in outline {
+            assert!(
+                on_the_edge(s.from, 50.0, 60.0) && on_the_edge(s.to, 50.0, 60.0),
+                "{s:?}"
+            );
+            length += s.from.distance_to(&s.to);
+        }
+        assert!((length - 40.0).abs() < 1e-9, "{length}");
+        // Every corner is visited.
+        for corner in [(50.0, 50.0), (60.0, 50.0), (60.0, 60.0), (50.0, 60.0)] {
+            assert!(outline.iter().any(|s| {
+                (s.from.x - corner.0).abs() < 1e-9 && (s.from.y - corner.1).abs() < 1e-9
+            }));
+        }
+    }
+
+    #[test]
+    fn the_outline_burns_at_the_layers_speed_and_power() {
+        let p = outline_project(vec![square(50.0, 50.0, 10.0)], true);
+        let layer = p.layers.iter().find(|l| l.kind == LayerKind::Fill).unwrap();
+        let (speed, power) = (layer.speed_mm_min, layer.power_percent);
+        let with = generate(&p);
+        let moves = fill_moves(&with);
+        for s in &moves[moves.len() - 4..] {
+            assert_eq!((s.feed_mm_min, s.power_percent), (speed, power));
+            assert!(!s.overscan);
+        }
+    }
+
+    #[test]
+    fn holes_are_outlined_too_and_before_the_shape_that_contains_them() {
+        let shapes = || vec![square(50.0, 50.0, 20.0), square(56.0, 56.0, 6.0)];
+        let plain = generate(&outline_project(shapes(), false));
+        let with = generate(&outline_project(shapes(), true));
+        let (before, after) = (fill_moves(&plain), fill_moves(&with));
+        assert_eq!(after.len(), before.len() + 8);
+        let first = after[before.len()];
+        let in_hole = |q: Point2| q.x >= 56.0 && q.x <= 62.0 && q.y >= 56.0 && q.y <= 62.0;
+        assert!(in_hole(first.from) && in_hole(first.to), "{first:?}");
+    }
+
+    #[test]
+    fn the_outline_is_part_of_every_pass() {
+        let one = outline_project(vec![square(50.0, 50.0, 10.0)], true);
+        let mut two = one.clone();
+        two.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .passes = 2;
+        assert_eq!(fill_moves(&generate(&one)).len(), 14);
+        let r = generate(&two);
+        let moves = fill_moves(&r);
+        assert_eq!(moves.len(), 28);
+        // Fill, outline, fill, outline: the 11th to 14th moves are the first outline.
+        for s in &moves[10..14] {
+            assert!(
+                on_the_edge(s.from, 50.0, 60.0) && on_the_edge(s.to, 50.0, 60.0),
+                "{s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_overscan_the_outline_is_still_a_plain_burning_move() {
+        let mut p = outline_project(vec![square(50.0, 50.0, 10.0)], true);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .overscan_mm = 3.0;
+        let r = generate(&p);
+        let segs = &r.toolpath.segments;
+        let last_four: Vec<usize> = segs
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.kind == MoveKind::Fill)
+            .map(|(i, _)| i)
+            .rev()
+            .take(4)
+            .collect();
+        let outline_start = *last_four.last().unwrap();
+        assert!(segs[outline_start..].iter().all(|s| !s.overscan));
+        assert!(segs[outline_start..]
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+            .all(|s| on_the_edge(s.from, 50.0, 60.0) && on_the_edge(s.to, 50.0, 60.0)));
+    }
+
+    // ---- ramped power --------------------------------------------------------------------
+
+    fn line(x0: f64, x1: f64) -> Path2D {
+        Path2D::new(vec![Point2::new(x0, 0.0), Point2::new(x1, 0.0)], false)
+    }
+
+    fn length_of(pieces: &[RampPiece]) -> f64 {
+        pieces.iter().map(|p| p.0.distance_to(&p.1)).sum()
+    }
+
+    fn follows_without_a_gap(pieces: &[RampPiece]) -> bool {
+        pieces
+            .windows(2)
+            .all(|w| w[0].1.distance_to(&w[1].0) < 1e-9)
+    }
+
+    #[test]
+    fn an_open_line_ramps_up_runs_at_full_power_and_ramps_down() {
+        let pieces = ramp_pieces(&line(0.0, 100.0), 5.0);
+        assert_eq!(pieces.len(), 8 + 1 + 8);
+        assert!(follows_without_a_gap(&pieces));
+        assert!((length_of(&pieces) - 100.0).abs() < 1e-9);
+        assert_eq!(pieces[0].0, Point2::new(0.0, 0.0));
+        assert_eq!(pieces[16].1, Point2::new(100.0, 0.0));
+        // The middle is the full power, the ends are the floor and above.
+        assert_eq!(pieces[8].2, 1.0);
+        assert!((pieces[0].2 - 0.25).abs() < 1e-12);
+        assert!((pieces[16].2 - 0.25).abs() < 1e-12);
+        for w in pieces[..9].windows(2) {
+            assert!(w[0].2 < w[1].2, "{w:?}");
+        }
+        for w in pieces[8..].windows(2) {
+            assert!(w[0].2 > w[1].2, "{w:?}");
+        }
+        // Each step is a ramp-length eighth long.
+        for p in &pieces[..8] {
+            assert!((p.0.distance_to(&p.1) - 0.625).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_short_line_ramps_over_half_its_length_each_way() {
+        let pieces = ramp_pieces(&line(0.0, 4.0), 5.0);
+        assert_eq!(pieces.len(), 16);
+        assert!(follows_without_a_gap(&pieces));
+        assert!((length_of(&pieces) - 4.0).abs() < 1e-9);
+        // It never reaches the full power: there is no flat middle.
+        assert!(pieces.iter().all(|p| p.2 < 1.0));
+        assert!((pieces[7].0.x - 1.75).abs() < 1e-9 && (pieces[7].1.x - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_closed_shape_runs_round_once_and_then_over_its_start_with_the_power_falling() {
+        let square = Path2D::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(40.0, 0.0),
+                Point2::new(40.0, 40.0),
+                Point2::new(0.0, 40.0),
+            ],
+            true,
+        );
+        let pieces = ramp_pieces(&square, 5.0);
+        // Eight steps up, the rest of the first edge and three more edges, eight steps down.
+        assert_eq!(pieces.len(), 8 + 4 + 8);
+        assert!(follows_without_a_gap(&pieces));
+        assert!((length_of(&pieces) - 165.0).abs() < 1e-9);
+        assert_eq!(pieces[0].0, Point2::new(0.0, 0.0));
+        assert_eq!(pieces[19].1, Point2::new(5.0, 0.0));
+        for middle in &pieces[8..12] {
+            assert_eq!(middle.2, 1.0);
+        }
+        // The second ramp runs over the same ground as the first, and the two add up to full power.
+        for k in 0..8 {
+            let (up, down) = (pieces[k], pieces[12 + k]);
+            assert_eq!((up.0, up.1), (down.0, down.1));
+            assert!((up.2 + down.2 - 1.0).abs() < 1e-12, "{up:?} {down:?}");
+            assert!(up.2 > 0.0 && down.2 > 0.0);
+        }
+    }
+
+    #[test]
+    fn a_closed_path_that_repeats_its_first_point_is_the_same_loop() {
+        let corners = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 0.0),
+            Point2::new(10.0, 10.0),
+            Point2::new(0.0, 10.0),
+        ];
+        let mut again = corners.clone();
+        again.push(corners[0]);
+        let a = ramp_pieces(&Path2D::new(corners, true), 2.0);
+        let b = ramp_pieces(&Path2D::new(again, true), 2.0);
+        assert_eq!(a.len(), b.len());
+        assert!((length_of(&a) - 42.0).abs() < 1e-9 && (length_of(&b) - 42.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_piece_never_turns_a_corner() {
+        // The ramp (15 mm) runs round the first corner of a 10 mm square.
+        let square = Path2D::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+                Point2::new(0.0, 10.0),
+            ],
+            true,
+        );
+        let pieces = ramp_pieces(&square, 15.0);
+        assert!(follows_without_a_gap(&pieces));
+        assert!((length_of(&pieces) - 55.0).abs() < 1e-9);
+        for p in &pieces {
+            let (dx, dy) = ((p.1.x - p.0.x).abs(), (p.1.y - p.0.y).abs());
+            assert!(dx < 1e-9 || dy < 1e-9, "{p:?} turns a corner");
+        }
+        // The corner at (10, 0) is the end of a piece, with the power stepping up across it.
+        assert!(pieces.iter().any(|p| p.1 == Point2::new(10.0, 0.0)));
+    }
+
+    #[test]
+    fn a_ramp_of_zero_or_too_small_or_not_a_number_gives_plain_full_power() {
+        let square = Path2D::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+                Point2::new(0.0, 10.0),
+            ],
+            true,
+        );
+        for ramp in [0.0, 0.001, -3.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let pieces = ramp_pieces(&square, ramp);
+            assert_eq!(pieces.len(), 4, "{ramp}");
+            assert!(pieces.iter().all(|p| p.2 == 1.0));
+            assert!((length_of(&pieces) - 40.0).abs() < 1e-9);
+        }
+        assert_eq!(ramp_pieces(&line(0.0, 50.0), 0.0).len(), 1);
+    }
+
+    #[test]
+    fn nothing_to_draw_gives_no_pieces() {
+        assert!(ramp_pieces(&Path2D::new(vec![], false), 5.0).is_empty());
+        assert!(ramp_pieces(&Path2D::new(vec![Point2::new(1.0, 1.0)], false), 5.0).is_empty());
+        let same = vec![Point2::new(1.0, 1.0), Point2::new(1.0, 1.0)];
+        assert!(ramp_pieces(&Path2D::new(same.clone(), false), 5.0).is_empty());
+        assert!(ramp_pieces(&Path2D::new(same, true), 5.0).is_empty());
+    }
+
+    #[test]
+    fn every_ramp_step_has_a_power_above_zero_and_not_above_full() {
+        let curve: Vec<Point2> = (0..=40)
+            .map(|i| {
+                let a = i as f64 * 0.1;
+                Point2::new(30.0 * a.cos(), 30.0 * a.sin())
+            })
+            .collect();
+        for path in [
+            line(0.0, 80.0),
+            Path2D::new(curve.clone(), false),
+            Path2D::new(curve, true),
+        ] {
+            for ramp in [0.5, 3.0, 9.0, 200.0] {
+                let pieces = ramp_pieces(&path, ramp);
+                assert!(!pieces.is_empty());
+                assert!(follows_without_a_gap(&pieces));
+                for p in &pieces {
+                    assert!(p.2 > 0.0 && p.2 <= 1.0, "{p:?}");
+                }
+            }
+        }
+    }
+
+    fn score_project(paths: Vec<Path2D>, ramp_mm: f64) -> ProjectFile {
+        let mut p = project_with(LayerKind::Score, paths);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Score)
+            .unwrap()
+            .ramp_mm = ramp_mm;
+        p
+    }
+
+    fn score_moves(r: &ToolpathResult) -> Vec<&ToolpathSegment> {
+        r.toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Score)
+            .collect()
+    }
+
+    #[test]
+    fn a_score_layer_is_not_ramped_unless_it_asks() {
+        let r = generate(&score_project(vec![square(50.0, 50.0, 40.0)], 0.0));
+        let moves = score_moves(&r);
+        assert_eq!(moves.len(), 4);
+        assert!(moves.iter().all(|s| s.power_percent == 15.0));
+    }
+
+    #[test]
+    fn a_ramped_score_line_steps_its_power_and_never_goes_above_the_layers() {
+        let r = generate(&score_project(vec![line(50.0, 150.0)], 5.0));
+        let moves = score_moves(&r);
+        assert_eq!(moves.len(), 17);
+        assert!((moves[0].power_percent - 3.75).abs() < 1e-9);
+        assert_eq!(moves[8].power_percent, 15.0);
+        for s in &moves {
+            assert!(s.power_percent > 0.0 && s.power_percent <= 15.0, "{s:?}");
+            assert_eq!(s.feed_mm_min, 1000.0);
+        }
+        // Nothing is left unburned between the steps.
+        for w in moves.windows(2) {
+            assert!(w[0].to.distance_to(&w[1].from) < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_ramped_score_loop_reaches_full_power_and_overlaps_its_start() {
+        let r = generate(&score_project(vec![square(50.0, 50.0, 40.0)], 5.0));
+        let moves = score_moves(&r);
+        assert_eq!(moves.len(), 20);
+        assert_eq!(moves.iter().filter(|s| s.power_percent == 15.0).count(), 4);
+        let total: f64 = moves.iter().map(|s| s.from.distance_to(&s.to)).sum();
+        assert!((total - 165.0).abs() < 1e-9, "{total}");
+    }
+
+    #[test]
+    fn passes_repeat_the_whole_ramped_path() {
+        let mut p = score_project(vec![line(50.0, 150.0)], 5.0);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Score)
+            .unwrap()
+            .passes = 2;
+        let r = generate(&p);
+        assert_eq!(score_moves(&r).len(), 34);
+    }
+
+    #[test]
+    fn cut_layers_are_never_ramped_so_a_cut_always_goes_all_the_way_through() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(50.0, 50.0, 40.0), line(10.0, 60.0)],
+        );
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .ramp_mm = 5.0;
+        let r = generate(&p);
+        let cuts = cut_segments(&r);
+        assert_eq!(cuts.len(), 5);
+        assert!(cuts.iter().all(|s| s.power_percent == 80.0));
+    }
+
+    #[test]
+    fn fill_layers_ignore_a_ramp() {
+        let mut p = outline_project(vec![square(50.0, 50.0, 10.0)], false);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .ramp_mm = 5.0;
+        let r = generate(&p);
+        assert!(fill_moves(&r).iter().all(|s| s.power_percent == 40.0));
     }
 
     #[test]

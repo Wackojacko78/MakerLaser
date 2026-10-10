@@ -8,6 +8,8 @@ use crate::operations::RasterOperation;
 
 /// Largest overscan a layer may ask for, in mm.
 pub const MAX_OVERSCAN_MM: f64 = 25.0;
+/// Largest power ramp a Score layer may ask for, in mm.
+pub const MAX_RAMP_MM: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,6 +73,14 @@ pub struct Layer {
     /// the burn happens at full speed. 0 = off.
     #[serde(default)]
     pub overscan_mm: f64,
+    /// Fill layers: after the fill, trace the edge of every closed shape once, for a crisp edge.
+    #[serde(default)]
+    pub fill_outline: bool,
+    /// Score layers: the power rises over this many mm at the start of each line and falls over the
+    /// same distance at the end, so the ends do not burn darker. 0 = off. Cut layers are never
+    /// ramped, so a cut always goes all the way through.
+    #[serde(default)]
+    pub ramp_mm: f64,
 }
 
 impl Layer {
@@ -98,6 +108,8 @@ impl Layer {
             cross_hatch: false,
             raster: RasterOperation::default(),
             overscan_mm: 0.0,
+            fill_outline: false,
+            ramp_mm: 0.0,
         }
     }
 
@@ -151,6 +163,12 @@ impl Layer {
                 MAX_OVERSCAN_MM
             ));
         }
+        if !(0.0..=MAX_RAMP_MM).contains(&self.ramp_mm) {
+            problems.push(format!(
+                "Layer '{n}': power ramp must be between 0 and {:.0} mm",
+                MAX_RAMP_MM
+            ));
+        }
         problems
     }
 }
@@ -158,6 +176,45 @@ impl Layer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_outline_pass_and_the_power_ramp_are_off_by_default_and_old_files_load_with_them_off() {
+        let l = Layer::new("Score", LayerKind::Score, 1);
+        assert!(!l.fill_outline);
+        assert_eq!(l.ramp_mm, 0.0);
+        let json = r##"{"id":"6f9c1c0e-5b0e-4a77-9a67-2f0a1d3f9a11","name":"Fill","kind":"fill",
+            "speed_mm_min":3000.0,"power_percent":40.0,"passes":1,"air_assist":false,
+            "enabled":true,"z_order":2,"color":"#00FF00","overscan_mm":2.0}"##;
+        let old: Layer = serde_json::from_str(json).unwrap();
+        assert!(!old.fill_outline);
+        assert_eq!(old.ramp_mm, 0.0);
+        assert_eq!(old.overscan_mm, 2.0);
+    }
+
+    #[test]
+    fn the_new_settings_survive_a_round_trip() {
+        let mut l = Layer::new("Score", LayerKind::Score, 1);
+        l.fill_outline = true;
+        l.ramp_mm = 3.5;
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(json.contains("\"fill_outline\":true"), "{json}");
+        assert!(json.contains("\"ramp_mm\":3.5"), "{json}");
+        let back: Layer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, l);
+    }
+
+    #[test]
+    fn a_ramp_outside_its_range_is_rejected() {
+        let mut l = Layer::new("Score", LayerKind::Score, 1);
+        l.ramp_mm = 5.0;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        l.ramp_mm = MAX_RAMP_MM;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        for bad in [-1.0, MAX_RAMP_MM + 1.0, f64::NAN, f64::INFINITY] {
+            l.ramp_mm = bad;
+            assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
+        }
+    }
 
     #[test]
     fn overscan_is_off_by_default_and_old_files_load_with_it_off() {

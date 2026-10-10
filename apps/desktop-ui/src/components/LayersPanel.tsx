@@ -178,6 +178,14 @@ function LayerCard({
           </>
         )}
 
+        {layer.kind === 'score' && (
+          <>
+            <label title="The power rises over this distance at the start of each line and falls over it at the end. Needs GRBL laser mode ($32=1). Cut layers are never ramped.">Ramp</label>
+            <NumberField value={layer.ramp_mm ?? 0} min={0} max={10} onCommit={(v) => patch('ramp', (l) => (l.ramp_mm = v))} />
+            <span className="unit">mm (0 = off)</span>
+          </>
+        )}
+
         {layer.kind === 'fill' && (
           <>
             <label>Spacing</label>
@@ -192,6 +200,9 @@ function LayerCard({
             <label>Overscan</label>
             <NumberField value={layer.overscan_mm ?? 0} min={0} max={25} onCommit={(v) => patch('overscan-fill', (l) => (l.overscan_mm = v))} />
             <span className="unit">mm (0 = off)</span>
+            <label title="After the fill, trace the edge of every closed shape once, for a crisp edge">Outline</label>
+            <input type="checkbox" checked={layer.fill_outline ?? false} onChange={(e) => patch('outline', (l) => (l.fill_outline = e.target.checked))} />
+            <span className="unit">trace the edge</span>
           </>
         )}
 

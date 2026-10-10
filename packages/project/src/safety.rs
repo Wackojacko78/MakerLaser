@@ -127,6 +127,18 @@ pub fn check_project(project: &ProjectFile) -> SafetyReport {
             "Overscan adds up to {overscan_mm:.1} mm of laser-off travel beyond each end of every scan line. Start From is relative to the laser head, so MakerLaser cannot keep that inside the bed: leave at least that much clear space around the artwork, and use Frame first."
         ));
     }
+    let ramped: Vec<&str> = project
+        .layers
+        .iter()
+        .filter(|l| l.enabled && l.kind == makerlaser_common::LayerKind::Score && l.ramp_mm > 0.0)
+        .map(|l| l.name.as_str())
+        .collect();
+    if !ramped.is_empty() {
+        report.warnings.push(format!(
+            "Ramped power on {}: the laser power changes in steps along every line, which needs GRBL laser mode ($32=1). With laser mode off the head pauses at each step and burns dark spots. Type $$ in the console to check $32.",
+            ramped.join(", ")
+        ));
+    }
     report
 }
 
@@ -199,6 +211,37 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("Overscan adds up to 3.0 mm")));
+    }
+
+    #[test]
+    fn a_power_ramp_on_a_score_layer_is_warned_about_but_not_blocked() {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        assert!(!check_project(&p)
+            .warnings
+            .iter()
+            .any(|w| w.contains("Ramped")));
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Score)
+            .unwrap()
+            .ramp_mm = 3.0;
+        let r = check_project(&p);
+        assert!(r.is_safe_to_run());
+        let warning = r.warnings.iter().find(|w| w.contains("Ramped")).unwrap();
+        assert!(
+            warning.contains("Score") && warning.contains("$32=1"),
+            "{warning}"
+        );
+        // A disabled layer is not run, so it is not warned about.
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Score)
+            .unwrap()
+            .enabled = false;
+        assert!(!check_project(&p)
+            .warnings
+            .iter()
+            .any(|w| w.contains("Ramped")));
     }
 
     #[test]

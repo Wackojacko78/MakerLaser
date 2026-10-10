@@ -24,7 +24,7 @@ architecture that leaves room for Ruida and galvo controllers later.
 | Import | SVG (all path commands, nested transforms, units), DXF (LINE, ARC, CIRCLE, ELLIPSE, LWPOLYLINE with bulges, POLYLINE, SPLINE; units; auto-join into closed loops), PNG/JPG/JPEG/BMP |
 | Geometry | Clipper2 union / difference / intersection / XOR, offsetting, **kerf compensation** |
 | Raster | Brightness, contrast, gamma, invert; Floyd-Steinberg, Jarvis, Stucki, Atkinson; live preview; works with rotated and mirrored images |
-| CAM | Nesting-aware cut order (holes before the boundary that contains them), travel reduction, engrave-before-cut, whole-job passes, serpentine fill, bidirectional raster |
+| CAM | Nesting-aware cut order (holes before the boundary that contains them), travel reduction, engrave-before-cut, whole-job passes, serpentine fill, bidirectional raster, overscan, a fill outline pass, ramped power on score lines |
 | G-code | GRBL 1.1: `M4` dynamic power, laser always off before travel, air assist `M8`/`M9`, modal-state tracking |
 | Machine | USB serial GRBL with **character-counting streaming**, pause/resume/stop on the real-time channel, jog, home, unlock, set origin, frame, state checks, alarm/error decoding |
 | Safety | Bed-bounds, layer and NaN checks; stale-preview lock; pre-flight confirmation; one job at a time; connection required for every motion |

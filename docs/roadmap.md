@@ -30,7 +30,7 @@ Since 0.1.0:
 
 * Shape objects (rectangle, ellipse, polygon). They resolve to `VectorData`, so the CAM engine
   does not change.
-* Ramped power and a perimeter/outline fill mode.
+* Ramped power and the fill outline pass are done (see Done), awaiting their first test on the laser.
 * SVG `<use>` and DXF `INSERT` (blocks), so imports stop losing geometry.
 * Inch display and a units setting wired into the UI (check what is already done).
 * Recent files (check what is already done).

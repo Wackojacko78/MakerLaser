@@ -225,6 +225,102 @@ fn bed_corner_points_map_to_machine_corners() {
     );
 }
 
+/// Reads every `M4 S...` value out of the G-code.
+fn spindle_values(gcode: &str) -> Vec<u32> {
+    gcode
+        .lines()
+        .filter_map(|l| l.strip_prefix("M4 S")?.trim().parse().ok())
+        .collect()
+}
+
+/// The laser is never on during a rapid move, and the program ends with it off.
+fn assert_laser_off_during_rapids_and_at_the_end(gcode: &str) {
+    let mut laser_on = false;
+    for line in gcode.lines() {
+        if line.starts_with("M4") || line.starts_with("M3") {
+            laser_on = true;
+        } else if line.starts_with("M5") {
+            laser_on = false;
+        } else if line.starts_with("G0") {
+            assert!(!laser_on, "rapid move with the laser on: {line}");
+        }
+    }
+    assert!(!laser_on, "program must end with the laser off");
+}
+
+#[test]
+fn a_ramped_score_line_sends_stepped_power_to_the_gcode() {
+    let svg = parse_svg(&fixture("square.svg")).unwrap();
+    let mut project = project_with(svg.paths, LayerKind::Score, 10.0, 10.0);
+    let layer = project
+        .layers
+        .iter_mut()
+        .find(|l| l.kind == LayerKind::Score)
+        .unwrap();
+    layer.ramp_mm = 3.0;
+    let layer_power = layer.power_percent;
+    let max_s = project.machine.max_spindle_value as f64;
+    let full = (layer_power / 100.0 * max_s).round() as u32;
+
+    let job = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    assert!(job.safety.is_safe_to_run(), "{:?}", job.safety);
+    let values = spindle_values(&job.gcode);
+    let distinct: std::collections::BTreeSet<u32> = values.iter().copied().collect();
+    assert_eq!(*distinct.iter().max().unwrap(), full);
+    assert!(*distinct.iter().min().unwrap() > 0, "{distinct:?}");
+    // Eight steps up and the full power: nine different values, and the same eight on the way down.
+    assert!(distinct.len() >= 9, "{distinct:?}");
+    assert!(values.len() > 16, "{}", values.len());
+    assert!(!job.gcode.contains("NaN"));
+    assert_laser_off_during_rapids_and_at_the_end(&job.gcode);
+}
+
+#[test]
+fn without_a_ramp_a_score_square_burns_at_one_power() {
+    let svg = parse_svg(&fixture("square.svg")).unwrap();
+    let project = project_with(svg.paths, LayerKind::Score, 10.0, 10.0);
+    let job = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    let distinct: std::collections::BTreeSet<u32> =
+        spindle_values(&job.gcode).into_iter().collect();
+    assert_eq!(distinct.len(), 1, "{distinct:?}");
+}
+
+#[test]
+fn a_fill_outline_adds_one_trace_of_every_closed_shape_and_stays_safe() {
+    let svg = parse_svg(&fixture("nested.svg")).unwrap();
+    let mut project = project_with(svg.paths, LayerKind::Fill, 100.0, 100.0);
+    project
+        .layers
+        .iter_mut()
+        .find(|l| l.kind == LayerKind::Fill)
+        .unwrap()
+        .line_spacing_mm = 1.0;
+    let plain = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    project
+        .layers
+        .iter_mut()
+        .find(|l| l.kind == LayerKind::Fill)
+        .unwrap()
+        .fill_outline = true;
+    let job = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    assert!(job.safety.is_safe_to_run(), "{:?}", job.safety);
+    // The square adds 4 moves and the circle adds one per side of the polygon it was flattened to.
+    let (before, after) = (
+        g1_coordinates(&plain.gcode).len(),
+        g1_coordinates(&job.gcode).len(),
+    );
+    assert!(after >= before + 4 + 16, "{before} -> {after}");
+    assert!(!job.gcode.contains("NaN"));
+    assert_laser_off_during_rapids_and_at_the_end(&job.gcode);
+    // Every point is still on the bed.
+    for (x, y) in g1_coordinates(&job.gcode) {
+        assert!(
+            (0.0..=300.0).contains(&x) && (0.0..=300.0).contains(&y),
+            "{x} {y}"
+        );
+    }
+}
+
 #[test]
 fn overscan_removes_the_stop_at_every_scan_line_and_never_moves_rapidly_with_the_laser_on() {
     let svg = parse_svg(&fixture("nested.svg")).unwrap();
