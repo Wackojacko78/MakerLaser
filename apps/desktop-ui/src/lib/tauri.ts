@@ -43,7 +43,8 @@ export const api = {
   setUserOrigin: () => invoke<[number, number]>('machine_set_user_origin'),
   userOrigin: () => invoke<[number, number] | null>('machine_user_origin'),
   clearUserOrigin: () => invoke<void>('machine_clear_user_origin'),
-  frame: () => invoke<void>('machine_frame'),
+  /** Traces the job outline. A laserPercent fires the laser at that low power for the trace; null keeps it off. */
+  frame: (laserPercent: number | null = null) => invoke<void>('machine_frame', { laserPercent }),
   start: () => invoke<void>('machine_start'),
   pause: () => invoke<void>('machine_pause'),
   resume: () => invoke<void>('machine_resume'),

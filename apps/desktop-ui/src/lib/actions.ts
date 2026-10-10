@@ -1,7 +1,9 @@
 // User-level flows shared by the toolbar, the keyboard shortcuts and drag-and-drop.
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { errorMessage } from '@/lib/format';
+import { frameLogMessage, framePowerRequest } from '@/lib/frameLaser';
 import { api } from '@/lib/tauri';
+import { frameLaser } from '@/state/frameLaserStore';
 import { useJobStore } from '@/state/jobStore';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -149,10 +151,13 @@ export async function startJobFlow(): Promise<void> {
 }
 
 export async function frameFlow(): Promise<void> {
+  // The laser only fires when it has been switched on in the Job panel (it is off at every start).
+  const { enabled, percent } = frameLaser.get();
+  const laserPercent = framePowerRequest(enabled, percent);
   try {
     await useProjectStore.getState().sync();
-    await api.frame();
-    useJobStore.getState().addLog('Framing the job outline (laser off).');
+    useJobStore.getState().addLog(frameLogMessage(laserPercent));
+    await api.frame(laserPercent);
   } catch (e) {
     useJobStore.getState().addLog(`Frame failed: ${errorMessage(e)}`);
     notify('error', `Frame failed: ${errorMessage(e)}`);

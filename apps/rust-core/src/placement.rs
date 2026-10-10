@@ -157,6 +157,86 @@ pub fn frame_program(
     Ok(lines)
 }
 
+/// The most power the framing laser may use, in percent of the machine's maximum. Framing is meant
+/// to show where the job goes, not to mark the material.
+pub const FRAME_LASER_MAX_PERCENT: f64 = 5.0;
+
+/// The S value for framing with the laser on at `percent` of the machine's maximum S value.
+/// Never rounds down to 0 (which would switch the laser off), and refuses anything above
+/// `FRAME_LASER_MAX_PERCENT` whatever the screen asked for.
+pub fn frame_laser_s(percent: f64, max_spindle_value: u32) -> Result<u32, String> {
+    if !percent.is_finite() || percent <= 0.0 || percent > FRAME_LASER_MAX_PERCENT {
+        return Err(format!(
+            "The framing laser power must be above 0% and at most {FRAME_LASER_MAX_PERCENT:.0}%."
+        ));
+    }
+    if max_spindle_value == 0 {
+        return Err(
+            "The machine's maximum S value is zero, so the laser power cannot be set.".to_string(),
+        );
+    }
+    let s = (percent / 100.0 * f64::from(max_spindle_value)).round() as u32;
+    Ok(s.clamp(1, max_spindle_value))
+}
+
+/// A complete program that traces the rectangle `min`..`max` (machine coordinates of the
+/// previewed job) with the laser **on** at S value `laser_s`, so the outline can be seen on the
+/// material.
+///
+/// * The head goes to the first corner with the laser off. The laser is switched on (`M4`, dynamic
+///   power) only for the four sides.
+/// * `M5` comes straight after the trace and before any rapid move, so the laser is never on
+///   during a `G0`, and the program always ends with it off.
+/// * `placement` is as for `frame_program`: `Some` traces the outline around the head and comes
+///   back; `None` traces it on the bed (absolute coordinates) and stays at the first corner.
+pub fn laser_frame_program(
+    min: (f64, f64),
+    max: (f64, f64),
+    feed_mm_min: f64,
+    placement: Option<&Placement>,
+    laser_s: u32,
+) -> Result<Vec<String>, String> {
+    if let Some(p) = placement {
+        validate(p)?;
+    }
+    check_finite(
+        &[min.0, min.1, max.0, max.1, feed_mm_min],
+        "frame rectangle",
+    )?;
+    if feed_mm_min <= 0.0 || min.0 > max.0 || min.1 > max.1 {
+        return Err("Invalid frame rectangle.".to_string());
+    }
+    if laser_s == 0 {
+        return Err("The framing laser power must be above zero.".to_string());
+    }
+    let feed = format!("F{feed_mm_min:.0}");
+    let mut lines = vec!["G21".to_string(), "G90".to_string(), "M5".to_string()];
+    match placement {
+        Some(p) => lines.extend(prelude(p)),
+        None => lines.push(CLEAR_OFFSET.to_string()),
+    }
+    let corners = [
+        (min.0, min.1),
+        (max.0, min.1),
+        (max.0, max.1),
+        (min.0, max.1),
+        (min.0, min.1),
+    ];
+    for (i, &(x, y)) in corners.iter().enumerate() {
+        lines.push(format!("G1 X{} Y{} {feed}", num(x), num(y)));
+        if i == 0 {
+            // At the first corner with the laser off. From here the trace is lit.
+            lines.push(format!("M4 S{laser_s}"));
+        }
+    }
+    lines.push("M5".to_string());
+    if let Some(p) = placement {
+        lines.push(format!("G0 X{} Y{}", num(p.anchor.0), num(p.anchor.1)));
+        lines.push(CLEAR_OFFSET.to_string());
+    }
+    Ok(lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,6 +414,129 @@ mod tests {
         assert!(frame_program((10.0, 10.0), (5.0, 20.0), 3000.0, &current()).is_err());
         assert!(frame_program((0.0, 0.0), (5.0, 5.0), 0.0, &current()).is_err());
         assert!(frame_program((0.0, 0.0), (f64::NAN, 5.0), 3000.0, &current()).is_err());
+    }
+
+    // ---- framing with the laser on -------------------------------------------------------
+
+    /// Reads a program the way the machine would. Returns the rapid moves made while the laser was
+    /// on, and whether the laser is still on at the end.
+    fn laser_trace(program: &[String]) -> (Vec<String>, bool) {
+        let mut laser_on = false;
+        let mut bad = Vec::new();
+        for line in program {
+            let l = line.trim();
+            if l.starts_with("M3") || l.starts_with("M4") {
+                laser_on = true;
+            } else if l.starts_with("M5") {
+                laser_on = false;
+            } else if (l.starts_with("G0") || l.starts_with("G53 G0")) && laser_on {
+                bad.push(l.to_string());
+            }
+        }
+        (bad, laser_on)
+    }
+
+    #[test]
+    fn the_framing_s_value_follows_the_machine_range_and_never_rounds_to_zero() {
+        assert_eq!(frame_laser_s(1.0, 1000), Ok(10));
+        assert_eq!(frame_laser_s(0.1, 1000), Ok(1));
+        assert_eq!(frame_laser_s(0.04, 1000), Ok(1));
+        assert_eq!(frame_laser_s(5.0, 1000), Ok(50));
+        assert_eq!(frame_laser_s(1.0, 255), Ok(3));
+    }
+
+    #[test]
+    fn a_framing_power_above_the_limit_or_not_a_power_is_refused() {
+        for bad in [0.0, -1.0, 5.01, 100.0, f64::NAN, f64::INFINITY] {
+            assert!(frame_laser_s(bad, 1000).is_err(), "{bad}");
+        }
+        assert!(frame_laser_s(1.0, 0).is_err());
+    }
+
+    #[test]
+    fn the_laser_frame_around_the_head_lights_only_the_trace() {
+        let out =
+            laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, Some(&current()), 10).unwrap();
+        assert_eq!(
+            out,
+            lines(&[
+                "G21",
+                "G90",
+                "M5",
+                "G92.1",
+                "G92 X10 Y290",
+                "G1 X10 Y260 F3000",
+                "M4 S10",
+                "G1 X40 Y260 F3000",
+                "G1 X40 Y290 F3000",
+                "G1 X10 Y290 F3000",
+                "G1 X10 Y260 F3000",
+                "M5",
+                "G0 X10 Y290",
+                "G92.1",
+            ])
+        );
+    }
+
+    #[test]
+    fn the_laser_frame_on_the_bed_stays_at_the_first_corner() {
+        let out = laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, None, 10).unwrap();
+        assert_eq!(
+            out,
+            lines(&[
+                "G21",
+                "G90",
+                "M5",
+                "G92.1",
+                "G1 X10 Y260 F3000",
+                "M4 S10",
+                "G1 X40 Y260 F3000",
+                "G1 X40 Y290 F3000",
+                "G1 X10 Y290 F3000",
+                "G1 X10 Y260 F3000",
+                "M5",
+            ])
+        );
+    }
+
+    #[test]
+    fn a_user_origin_laser_frame_goes_there_before_the_laser_comes_on() {
+        let out =
+            laser_frame_program((10.0, 260.0), (40.0, 290.0), 3000.0, Some(&user()), 10).unwrap();
+        let go_there = out.iter().position(|l| l.starts_with("G53 G0")).unwrap();
+        let laser_on = out.iter().position(|l| l == "M4 S10").unwrap();
+        assert!(go_there < laser_on, "{out:?}");
+        assert_eq!(out.iter().filter(|l| l.starts_with("M4")).count(), 1);
+    }
+
+    #[test]
+    fn the_laser_is_never_on_during_a_rapid_move_and_is_off_at_the_end() {
+        for placement in [None, Some(current()), Some(user())] {
+            let out = laser_frame_program(
+                (10.0, 260.0),
+                (40.0, 290.0),
+                3000.0,
+                placement.as_ref(),
+                10,
+            )
+            .unwrap();
+            let (rapids_with_laser_on, on_at_the_end) = laser_trace(&out);
+            assert!(rapids_with_laser_on.is_empty(), "{rapids_with_laser_on:?}");
+            assert!(!on_at_the_end, "{out:?}");
+        }
+    }
+
+    #[test]
+    fn a_bad_laser_frame_is_refused() {
+        assert!(laser_frame_program((10.0, 10.0), (5.0, 20.0), 3000.0, None, 10).is_err());
+        assert!(laser_frame_program((0.0, 0.0), (5.0, 5.0), 0.0, None, 10).is_err());
+        assert!(laser_frame_program((0.0, 0.0), (f64::NAN, 5.0), 3000.0, None, 10).is_err());
+        assert!(laser_frame_program((0.0, 0.0), (5.0, 5.0), 3000.0, None, 0).is_err());
+        let nan = Placement {
+            anchor: (f64::NAN, 0.0),
+            user_origin: None,
+        };
+        assert!(laser_frame_program((0.0, 0.0), (5.0, 5.0), 3000.0, Some(&nan), 10).is_err());
     }
 
     #[test]

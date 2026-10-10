@@ -16,12 +16,13 @@ Since 0.1.0:
 * Machine and material catalogues, config import and export.
 * Resizable console and right-hand panel.
 * Linux notes (docs/linux.md) and an Ubuntu job in CI.
+* Frame with the laser on at low power (off by default; docs/framing.md).
 
 ## Next
 
 1. Hardware bring-up on the TTS-55 Pro following `SAFETY.md`: verify Start From and overscan on
    scrap, record what Pause does with the beam, tune the starter material presets.
-2. Frame with the laser on at low power, so the frame is visible on the material.
+2. Verify framing with the laser on (docs/framing.md): is the beam visible on scrap, and does Stop put it out at once.
 3. CI: clippy with `-D warnings`; tighten the CSP.
 
 ## Soon

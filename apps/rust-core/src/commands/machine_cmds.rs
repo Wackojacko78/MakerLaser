@@ -17,7 +17,7 @@ use makerlaser_machine::{
 use serde::Serialize;
 use tauri::{Emitter, State};
 
-use crate::placement::{frame_program, place_program, Placement};
+use crate::placement::{frame_laser_s, frame_program, laser_frame_program, place_program, Placement};
 use crate::state::{fingerprint, lock, AppState, POISONED};
 
 const FRAME_FEED_MM_MIN: f64 = 3000.0;
@@ -233,10 +233,15 @@ pub fn machine_clear_user_origin(state: State<'_, AppState>) -> Result<(), Strin
     Ok(())
 }
 
-/// Traces the outline of the job (laser off). Refuses an empty job or one outside the bed.
+/// Traces the outline of the job. The laser is off unless `laser_percent` is given: then it is on
+/// at that low power (at most `FRAME_LASER_MAX_PERCENT`) for the trace, so the outline can be seen
+/// on the material. Refuses an empty job or one outside the bed.
 #[tauri::command(async)]
-pub fn machine_frame(state: State<'_, AppState>) -> Result<(), String> {
-    let (min, max, feed, relative) = {
+pub fn machine_frame(
+    state: State<'_, AppState>,
+    laser_percent: Option<f64>,
+) -> Result<(), String> {
+    let (min, max, feed, relative, laser_s) = {
         let project = lock(&state.project)?;
         let extent = project
             .objects
@@ -271,14 +276,21 @@ pub fn machine_frame(state: State<'_, AppState>) -> Result<(), String> {
             (max.x, max.y),
             FRAME_FEED_MM_MIN.min(project.machine.max_feed_rate_mm_min),
             relative_placement(&state, &project)?,
+            laser_percent
+                .map(|percent| frame_laser_s(percent, project.machine.max_spindle_value))
+                .transpose()?,
         )
     };
     let mut controller = state.controller()?;
-    let Some(placement) = relative else {
-        return controller.frame(min, max, feed).map_err(|e| e.to_string());
+    // Laser off on the bed is the controller's own frame. Everything else is a short program run
+    // like a job: Start From relative to the head traces the outline around it and comes back, and
+    // with the laser on it is switched on only for the trace and off again before the return move.
+    // An abort or an error soft-resets the controller, which switches the laser off.
+    let lines = match (relative.as_ref(), laser_s) {
+        (None, None) => return controller.frame(min, max, feed).map_err(|e| e.to_string()),
+        (Some(placement), None) => frame_program(min, max, feed, placement)?,
+        (placement, Some(s)) => laser_frame_program(min, max, feed, placement, s)?,
     };
-    // Start From relative to the head: trace the outline around it, then come back.
-    let lines = frame_program(min, max, feed, &placement)?;
     let control = state.job_control.clone();
     control.reset();
     let outcome = controller.run_program(&lines, &control, &mut |_| {});
@@ -375,6 +387,11 @@ fn realtime(state: &AppState) -> Result<Arc<dyn makerlaser_machine::RealtimeCont
 
 #[tauri::command(async)]
 pub fn machine_pause(state: State<'_, AppState>) -> Result<(), String> {
+    // Pause (feed hold) belongs to a running job. A frame has nothing to resume, and one with the
+    // laser on is ended with STOP, which switches the laser off.
+    if !is_running(&state) {
+        return Err("There is no running job to pause. Use STOP to end a frame.".to_string());
+    }
     realtime(&state)?.pause().map_err(|e| e.to_string())?;
     state.job_control.request_pause();
     Ok(())

@@ -15,6 +15,8 @@
 - Machine connection settings: USB serial, WebSocket and Telnet (FluidNC).
 - Machine and material catalogues; config import and export.
 - Resizable console and right-hand panel.
+- Frame with the laser on at low power, so the outline can be seen on the material. Off by default
+  and off again every time MakerLaser starts. See docs/framing.md.
 
 ### Changed
 - Frontend toolchain upgraded to Vite 7 and Vitest 4.

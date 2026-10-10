@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
+import { ask, save } from '@tauri-apps/plugin-dialog';
+import { NumberField } from '@/components/NumberField';
 import { PreflightDialog } from '@/components/PreflightDialog';
 import { frameFlow, startJobFlow, stopFlow } from '@/lib/actions';
 import { errorMessage, formatDuration } from '@/lib/format';
+import {
+  FRAME_LASER_MAX_PERCENT,
+  FRAME_LASER_MIN_PERCENT,
+  FRAME_LASER_WARNING,
+  frameButtonLabel,
+} from '@/lib/frameLaser';
 import { decodeGrblMessage } from '@/lib/grblDiagnostics';
 import { api } from '@/lib/tauri';
+import { frameLaser, useFrameLaser } from '@/state/frameLaserStore';
 import { useJobStore } from '@/state/jobStore';
 import { useMachineStore } from '@/state/machineStore';
 import { useNoticeStore } from '@/state/noticeStore';
@@ -90,6 +98,26 @@ export function MachineConsole() {
   const notify = useNoticeStore((s) => s.show);
   const [tab, setTab] = useState<Tab>('console');
   const [preflight, setPreflight] = useState(false);
+  const frameCfg = useFrameLaser();
+  const [framing, setFraming] = useState(false);
+  const requestFrame = () => {
+    setFraming(true);
+    void frameFlow().finally(() => setFraming(false));
+  };
+  // Switching the laser on for framing asks first; switching it off does not.
+  const toggleFrameLaser = async (on: boolean) => {
+    if (!on) {
+      frameLaser.setEnabled(false);
+      return;
+    }
+    const confirmed = await ask(FRAME_LASER_WARNING, {
+      title: 'Frame with the laser on',
+      kind: 'warning',
+      okLabel: 'Turn on',
+      cancelLabel: 'Cancel',
+    });
+    if (confirmed) frameLaser.setEnabled(true);
+  };
 
   // Default the baud rate from the machine profile.
   useEffect(() => {
@@ -252,7 +280,17 @@ export function MachineConsole() {
         <div className="block job">
           <h4>Job</h4>
           <div className="row">
-            <button disabled={!idle} onClick={() => void frameFlow()} title="Trace the job outline with the laser off">Frame</button>
+            <button
+              disabled={!idle || framing}
+              onClick={requestFrame}
+              title={
+                frameCfg.enabled
+                  ? `Trace the job outline with the laser ON at ${frameCfg.percent}% power`
+                  : 'Trace the job outline with the laser off'
+              }
+            >
+              {frameButtonLabel({ framing, enabled: frameCfg.enabled })}
+            </button>
             <button
               className="start"
               disabled={blocker !== null}
@@ -261,6 +299,23 @@ export function MachineConsole() {
             >
               Start…
             </button>
+          </div>
+          <div className="row">
+            <label
+              className="check"
+              title="Fire the laser at low power while framing, so the outline can be seen on the material. Off every time MakerLaser starts."
+              style={frameCfg.enabled ? { color: '#ffb020' } : undefined}
+            >
+              <input type="checkbox" checked={frameCfg.enabled} onChange={(e) => void toggleFrameLaser(e.target.checked)} />
+              Frame with laser on
+            </label>
+            <NumberField
+              value={frameCfg.percent}
+              min={FRAME_LASER_MIN_PERCENT}
+              max={FRAME_LASER_MAX_PERCENT}
+              onCommit={(v) => frameLaser.setPercent(v)}
+            />
+            <small>%</small>
           </div>
           <div className="row">
             {job.paused ? (
