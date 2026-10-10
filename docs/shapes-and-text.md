@@ -38,7 +38,7 @@ drawn is kept.
 
 ## Editing later
 
-- **Double-click** a shape or text to open the same editor next to it, or
+- **Double-click** a shape or text (or select it and press **Enter** or **F2**) to open the same editor next to it, or
 - select it and use the boxes in the **Properties** panel on the right. They are always there for a
   single selected shape or text, and change it live.
 
@@ -55,7 +55,7 @@ What stays and what changes when you edit:
 For a shape the Properties panel shows its own W and H, not the bounding box, so a rotated shape
 still shows its real width and height.
 
-Not editable this way: imported SVG and DXF artwork, images, and text or shapes made before they
+If double-clicking does nothing it says why. Not editable this way: imported SVG and DXF artwork, images, and text or shapes made before they
 kept their settings. Add those again to make them editable.
 
 ## Saved files

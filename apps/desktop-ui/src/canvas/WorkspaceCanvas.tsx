@@ -4,6 +4,7 @@ import { Circle, Group, Image as KImage, Layer as KLayer, Line, Rect, Shape, Sta
 import useImage from 'use-image';
 import { DrawPreview } from '@/canvas/DrawPreview';
 import { finishDrawing } from '@/canvas/drawActions';
+import { openEditorAt, openEditorForKey } from '@/canvas/editActions';
 import { MeasureOverlay } from '@/canvas/MeasureOverlay';
 import { ToolpathOverlay } from '@/canvas/ToolpathOverlay';
 import { CanvasEditor } from '@/components/CanvasEditor';
@@ -269,6 +270,12 @@ export function WorkspaceCanvas() {
     if (d) finishDrawing(d, useViewStore.getState().scale);
   };
 
+  // Enter or F2 opens the editor of the selected text or shape.
+  useEffect(() => {
+    window.addEventListener('keydown', openEditorForKey);
+    return () => window.removeEventListener('keydown', openEditorForKey);
+  }, []);
+
   // Esc leaves a drawing tool (and cancels a drag in progress); V goes back to Select.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -400,6 +407,14 @@ export function WorkspaceCanvas() {
       className={measuring ? 'workspace measuring' : 'workspace'}
       ref={wrapRef}
       style={drawTool !== null && !measuring ? { cursor: 'crosshair' } : undefined}
+      onDoubleClick={() => {
+        // The browser's own double-click fires wherever the two clicks land. Konva's needs both
+        // clicks on the very same drawn shape, which text and thin outlines often miss.
+        const p = layerRef.current?.getRelativePointerPosition();
+        if (p && !measuring && drawTool === null) {
+          openEditorAt({ x: p.x / PX_PER_MM, y: p.y / PX_PER_MM }, useViewStore.getState().scale);
+        }
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {size.w > 0 && (

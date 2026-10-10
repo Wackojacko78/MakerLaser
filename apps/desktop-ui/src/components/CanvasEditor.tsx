@@ -68,6 +68,7 @@ export function CanvasEditor({ container }: Props) {
       aria-label={isText ? 'Edit text' : 'Edit shape'}
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
         left: place.left,
