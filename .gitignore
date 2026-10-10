@@ -28,3 +28,4 @@ verification.log
 *.mlp.tmp
 
 add-*.mjs
+apply-*.mjs
