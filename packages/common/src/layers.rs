@@ -6,6 +6,9 @@ use uuid::Uuid;
 
 use crate::operations::RasterOperation;
 
+/// Largest overscan a layer may ask for, in mm.
+pub const MAX_OVERSCAN_MM: f64 = 25.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LayerKind {
@@ -64,6 +67,10 @@ pub struct Layer {
     /// Image layers: raster pipeline settings.
     #[serde(default)]
     pub raster: RasterOperation,
+    /// Fill and Image layers: how far the head runs past each end of a scan line, laser off, so
+    /// the burn happens at full speed. 0 = off.
+    #[serde(default)]
+    pub overscan_mm: f64,
 }
 
 impl Layer {
@@ -90,6 +97,7 @@ impl Layer {
             fill_angle_deg: 0.0,
             cross_hatch: false,
             raster: RasterOperation::default(),
+            overscan_mm: 0.0,
         }
     }
 
@@ -137,6 +145,12 @@ impl Layer {
                 "Layer '{n}': raster DPI must be between 25 and 2540"
             ));
         }
+        if !(0.0..=MAX_OVERSCAN_MM).contains(&self.overscan_mm) {
+            problems.push(format!(
+                "Layer '{n}': overscan must be between 0 and {:.0} mm",
+                MAX_OVERSCAN_MM
+            ));
+        }
         problems
     }
 }
@@ -144,6 +158,27 @@ impl Layer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overscan_is_off_by_default_and_old_files_load_with_it_off() {
+        assert_eq!(Layer::new("Fill", LayerKind::Fill, 0).overscan_mm, 0.0);
+        let json = r##"{"id":"6f9c1c0e-5b0e-4a77-9a67-2f0a1d3f9a11","name":"Fill","kind":"fill",
+            "speed_mm_min":3000.0,"power_percent":40.0,"passes":1,"air_assist":false,
+            "enabled":true,"z_order":2,"color":"#00FF00"}"##;
+        let l: Layer = serde_json::from_str(json).unwrap();
+        assert_eq!(l.overscan_mm, 0.0);
+    }
+
+    #[test]
+    fn overscan_outside_its_range_is_rejected() {
+        let mut l = Layer::new("Fill", LayerKind::Fill, 0);
+        l.overscan_mm = 5.0;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        for bad in [-1.0, MAX_OVERSCAN_MM + 1.0, f64::NAN] {
+            l.overscan_mm = bad;
+            assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
+        }
+    }
 
     #[test]
     fn default_set_has_four_layers_in_order() {

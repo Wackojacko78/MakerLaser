@@ -54,6 +54,8 @@ export interface Layer {
   fill_angle_deg: number;
   cross_hatch: boolean;
   raster: RasterOperation;
+  /** Fill and Image layers: laser-off run-up and run-out past each scan line, in mm. Absent in older files, which means 0. */
+  overscan_mm?: number;
 }
 
 export interface ImageObjectData {

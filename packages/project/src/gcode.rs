@@ -7,6 +7,8 @@
 //! * Laser on uses `M4` (dynamic power), which scales power with speed during
 //!   acceleration so corners do not burn. `M5` is always emitted before any travel move, so
 //!   safety never depends on GRBL's laser-mode setting (`$32`).
+//! * Overscan moves (laser-off run-ups, run-outs and joins) are sent as `M4 S0` + `G1`, never
+//!   `M5` + `G0`, so GRBL's planner is not emptied between scan lines.
 //! * Air assist uses `M8`/`M9` when the machine profile says it is supported.
 
 use makerlaser_common::{MachineProfile, Point2};
@@ -85,22 +87,32 @@ pub fn generate_gcode(
         }
 
         match seg.kind {
-            MoveKind::Travel => {
+            MoveKind::Travel if !seg.overscan => {
                 if laser_on {
                     out.push_str("M5\n");
                     laser_on = false;
                 }
                 out.push_str(&format!("G0 X{} Y{}\n", fmt(to.x), fmt(to.y)));
             }
-            MoveKind::Cut | MoveKind::Score | MoveKind::Fill | MoveKind::Engrave => {
+            MoveKind::Travel
+            | MoveKind::Cut
+            | MoveKind::Score
+            | MoveKind::Fill
+            | MoveKind::Engrave => {
                 if machine.air_assist_supported && seg.air_assist != air_on {
                     out.push_str(if seg.air_assist { "M8\n" } else { "M9\n" });
                     air_on = seg.air_assist;
                 }
-                let mut s = (seg.power_percent / 100.0 * max_s)
-                    .round()
-                    .clamp(0.0, max_s) as u32;
-                if s == 0 && seg.power_percent > 0.0 {
+                // Overscan moves keep the laser armed (M4) at zero power, so GRBL never has to
+                // empty its planner to switch it off.
+                let mut s = if seg.overscan {
+                    0
+                } else {
+                    (seg.power_percent / 100.0 * max_s)
+                        .round()
+                        .clamp(0.0, max_s) as u32
+                };
+                if s == 0 && !seg.overscan && seg.power_percent > 0.0 {
                     s = 1;
                 }
                 if !laser_on || current_s != Some(s) {
@@ -153,6 +165,7 @@ mod tests {
             feed_mm_min: feed,
             power_percent: power,
             air_assist: air,
+            overscan: false,
         }
     }
 
@@ -167,6 +180,67 @@ mod tests {
 
     fn body(g: &str) -> Vec<&str> {
         g.lines().filter(|l| !l.starts_with(';')).collect()
+    }
+
+    fn dark(from: (f64, f64), to: (f64, f64), feed: f64) -> ToolpathSegment {
+        ToolpathSegment {
+            from: Point2::new(from.0, from.1),
+            to: Point2::new(to.0, to.1),
+            kind: MoveKind::Travel,
+            feed_mm_min: feed,
+            power_percent: 0.0,
+            air_assist: false,
+            overscan: true,
+        }
+    }
+
+    #[test]
+    fn overscan_moves_stay_armed_at_s0_so_grbl_never_empties_its_planner() {
+        // Workspace (0, 300) is the machine origin on the TTS-55 Pro.
+        let g = gen(vec![
+            dark((0.0, 300.0), (2.0, 300.0), 3000.0),
+            seg(
+                (2.0, 300.0),
+                (10.0, 300.0),
+                MoveKind::Fill,
+                3000.0,
+                80.0,
+                false,
+            ),
+            dark((10.0, 300.0), (12.0, 300.0), 3000.0),
+        ]);
+        let lines = body(&g);
+        assert_eq!(
+            &lines[5..11],
+            [
+                "M4 S0",
+                "G1 X2 Y0 F3000",
+                "M4 S800",
+                "G1 X10 Y0",
+                "M4 S0",
+                "G1 X12 Y0"
+            ]
+        );
+        // Only the header and the end of the job switch the laser off.
+        assert_eq!(lines.iter().filter(|l| **l == "M5").count(), 2, "{lines:?}");
+    }
+
+    #[test]
+    fn a_real_travel_after_an_overscan_move_switches_the_laser_off_first() {
+        let g = gen(vec![
+            dark((0.0, 300.0), (2.0, 300.0), 3000.0),
+            seg(
+                (2.0, 300.0),
+                (50.0, 250.0),
+                MoveKind::Travel,
+                6000.0,
+                0.0,
+                false,
+            ),
+        ]);
+        let lines = body(&g);
+        let rapid = lines.iter().position(|l| l.starts_with("G0 X50")).unwrap();
+        assert_eq!(lines[rapid - 1], "M5");
     }
 
     #[test]

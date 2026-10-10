@@ -30,6 +30,11 @@ const MAX_RASTER_PIXELS: u64 = 60_000_000;
 const MAX_SEGMENTS: usize = 4_000_000;
 const MAX_FILL_LINES: usize = 400_000;
 const RAPID_FEED_MM_MIN: f64 = 6000.0;
+/// Overscan: runs on one scan line closer together than this are joined by a laser-off move at
+/// the layer's feed rate instead of a stop.
+const OVERSCAN_JOIN_MM: f64 = 10.0;
+/// Overscan moves shorter than this are dropped.
+const OVERSCAN_MIN_MM: f64 = 0.01;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -49,6 +54,11 @@ pub struct ToolpathSegment {
     pub feed_mm_min: f64,
     pub power_percent: f64,
     pub air_assist: bool,
+    /// A laser-off move that belongs to an overscan run-up, run-out or join. The kind is
+    /// Travel, but G-code sends it as M4 S0 + G1 at feed_mm_min (never M5 + G0), so GRBL's
+    /// planner is not emptied between scan lines.
+    #[serde(default)]
+    pub overscan: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -77,9 +87,16 @@ impl Toolpath {
         s
     }
 
-    /// Bounding box of every point the laser head visits (travel included).
+    /// Bounding box of every point the laser head visits (travel included). Overscan moves
+    /// are left out: they are clamped to the bed when they are made, and including them would
+    /// move the job's edges (and so Start From / Job Origin) by the overscan distance.
     pub fn bounds(&self) -> Option<BoundingBox> {
-        BoundingBox::from_points(self.segments.iter().flat_map(|s| [&s.from, &s.to]))
+        BoundingBox::from_points(
+            self.segments
+                .iter()
+                .filter(|s| !s.overscan)
+                .flat_map(|s| [&s.from, &s.to]),
+        )
     }
 }
 
@@ -106,6 +123,7 @@ impl Builder {
                 feed_mm_min: self.rapid,
                 power_percent: 0.0,
                 air_assist: false,
+                overscan: false,
             });
         }
         self.cursor = target;
@@ -120,8 +138,105 @@ impl Builder {
             feed_mm_min: layer.speed_mm_min,
             power_percent: layer.power_percent,
             air_assist: layer.air_assist,
+            overscan: false,
         });
         self.cursor = to;
+    }
+
+    /// A laser-off move to "to" at the layer's feed rate: an overscan run-up, run-out or join.
+    /// G-code sends it as M4 S0 + G1, never M5 + G0, so GRBL's planner is not emptied and the
+    /// head keeps its speed.
+    fn dark(&mut self, to: Point2, layer: &Layer) {
+        let from = self.cursor;
+        if from.distance_to(&to) > 1e-9 {
+            self.toolpath.segments.push(ToolpathSegment {
+                from,
+                to,
+                kind: MoveKind::Travel,
+                feed_mm_min: layer.speed_mm_min,
+                power_percent: 0.0,
+                air_assist: layer.air_assist,
+                overscan: true,
+            });
+        }
+        self.cursor = to;
+    }
+
+    /// Moves to the start of the next run-up. Short hops stay at the layer's feed rate so the
+    /// head does not stop between scan lines; longer ones are ordinary rapid travel.
+    fn link_to(&mut self, target: Point2, layer: &Layer) {
+        let distance = self.cursor.distance_to(&target);
+        if distance <= 1e-6 {
+            self.cursor = target;
+        } else if distance <= OVERSCAN_JOIN_MM {
+            self.dark(target, layer);
+        } else {
+            self.travel_to(target);
+        }
+    }
+
+    /// Burns scan lines with overscan. Each line is a list of runs in travel order. Runs on a
+    /// line that are close together are burned as one chain (the gaps are crossed with the laser
+    /// off, without stopping); each chain gets a laser-off run-up before it and run-out after it.
+    fn scan_lines(
+        &mut self,
+        lines: &[Vec<(Point2, Point2)>],
+        kind: MoveKind,
+        layer: &Layer,
+        bed: &BoundingBox,
+    ) {
+        let mut first = true;
+        for line in lines {
+            let mut start = 0;
+            while start < line.len() {
+                let mut end = start + 1;
+                while end < line.len()
+                    && line[end - 1].1.distance_to(&line[end].0) <= OVERSCAN_JOIN_MM
+                {
+                    end += 1;
+                }
+                self.scan_chain(&line[start..end], kind, layer, bed, first);
+                first = false;
+                start = end;
+            }
+        }
+    }
+
+    fn scan_chain(
+        &mut self,
+        chain: &[(Point2, Point2)],
+        kind: MoveKind,
+        layer: &Layer,
+        bed: &BoundingBox,
+        first: bool,
+    ) {
+        let (Some(&(head, along)), Some(&(_, tail))) = (chain.first(), chain.last()) else {
+            return;
+        };
+        let length = head.distance_to(&along);
+        let (run_up, run_out) = if length > 1e-9 {
+            let (dx, dy) = ((along.x - head.x) / length, (along.y - head.y) / length);
+            (
+                extend_within_bed(head, -dx, -dy, layer.overscan_mm, bed),
+                extend_within_bed(tail, dx, dy, layer.overscan_mm, bed),
+            )
+        } else {
+            (head, tail)
+        };
+        // The first line of an operation is approached by a normal rapid move.
+        if first {
+            self.travel_to(run_up);
+        } else {
+            self.link_to(run_up, layer);
+        }
+        self.dark(head, layer);
+        for (i, &(a, z)) in chain.iter().enumerate() {
+            if i > 0 {
+                self.dark(a, layer);
+            }
+            self.draw(a, z, kind, layer);
+        }
+        self.dark(run_out, layer);
     }
 
     fn path(&mut self, path: &Path2D, kind: MoveKind, layer: &Layer) {
@@ -139,6 +254,47 @@ impl Builder {
             }
         }
     }
+}
+
+/// The point reached by moving from "p" along the unit direction (dx, dy) by up to "max_mm",
+/// stopping at the bed edge. Returns "p" itself when there is less than OVERSCAN_MIN_MM of room.
+fn extend_within_bed(p: Point2, dx: f64, dy: f64, max_mm: f64, bed: &BoundingBox) -> Point2 {
+    let mut reach = max_mm;
+    if dx > 1e-12 {
+        reach = reach.min((bed.max.x - p.x) / dx);
+    } else if dx < -1e-12 {
+        reach = reach.min((bed.min.x - p.x) / dx);
+    }
+    if dy > 1e-12 {
+        reach = reach.min((bed.max.y - p.y) / dy);
+    } else if dy < -1e-12 {
+        reach = reach.min((bed.min.y - p.y) / dy);
+    }
+    if reach < OVERSCAN_MIN_MM {
+        p
+    } else {
+        Point2::new(p.x + dx * reach, p.y + dy * reach)
+    }
+}
+
+/// Splits raster runs (already in scan order) into scan lines: consecutive runs that share a row
+/// (horizontal scan) or a column (vertical scan).
+fn group_scan_lines(runs: &[(Point2, Point2)], horizontal: bool) -> Vec<Vec<(Point2, Point2)>> {
+    let mut lines: Vec<Vec<(Point2, Point2)>> = Vec::new();
+    let mut line_pos = f64::NAN;
+    for &(a, z) in runs {
+        let pos = if horizontal { a.y } else { a.x };
+        let same_line = !lines.is_empty() && (pos - line_pos).abs() < 1e-9;
+        if same_line {
+            if let Some(line) = lines.last_mut() {
+                line.push((a, z));
+            }
+        } else {
+            lines.push(vec![(a, z)]);
+            line_pos = pos;
+        }
+    }
+    lines
 }
 
 fn world_paths(obj: &WorkspaceObject) -> Vec<Path2D> {
@@ -163,6 +319,7 @@ pub fn generate_toolpath(
     let objects: HashMap<Uuid, &WorkspaceObject> =
         project.objects.iter().map(|o| (o.id, o)).collect();
     let home = project.machine.machine_to_workspace(Point2::ZERO);
+    let bed = project.machine.bed_bounds();
     let mut b = Builder {
         toolpath: Toolpath::default(),
         cursor: home,
@@ -250,9 +407,13 @@ pub fn generate_toolpath(
                         }
                     }
                     for _ in 0..passes {
-                        for row in &rows {
-                            for (a, z) in row {
-                                b.draw(*a, *z, MoveKind::Fill, layer);
+                        if layer.overscan_mm > 0.0 {
+                            b.scan_lines(&rows, MoveKind::Fill, layer, &bed);
+                        } else {
+                            for row in &rows {
+                                for (a, z) in row {
+                                    b.draw(*a, *z, MoveKind::Fill, layer);
+                                }
                             }
                         }
                     }
@@ -275,9 +436,19 @@ pub fn generate_toolpath(
                     };
                     match raster_runs(obj, image, bytes, params) {
                         Ok(runs) => {
+                            let lines = if layer.overscan_mm > 0.0 {
+                                let horizontal = params.direction == ScanDirection::Horizontal;
+                                group_scan_lines(&runs, horizontal)
+                            } else {
+                                Vec::new()
+                            };
                             for _ in 0..passes {
-                                for (a, z) in &runs {
-                                    b.draw(*a, *z, MoveKind::Engrave, layer);
+                                if layer.overscan_mm > 0.0 {
+                                    b.scan_lines(&lines, MoveKind::Engrave, layer, &bed);
+                                } else {
+                                    for (a, z) in &runs {
+                                        b.draw(*a, *z, MoveKind::Engrave, layer);
+                                    }
                                 }
                             }
                         }
@@ -1068,6 +1239,149 @@ mod tests {
     }
 
     // ---- general ---------------------------------------------------------------------
+
+    // ---- overscan --------------------------------------------------------------------
+
+    fn fill_project(paths: Vec<Path2D>, spacing: f64, overscan_mm: f64) -> ProjectFile {
+        let mut p = project_with(LayerKind::Fill, paths);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap();
+        layer.line_spacing_mm = spacing;
+        layer.overscan_mm = overscan_mm;
+        p
+    }
+
+    fn burns(r: &ToolpathResult) -> Vec<(Point2, Point2)> {
+        r.toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+            .map(|s| (s.from, s.to))
+            .collect()
+    }
+
+    fn dark_moves(r: &ToolpathResult) -> Vec<&ToolpathSegment> {
+        r.toolpath.segments.iter().filter(|s| s.overscan).collect()
+    }
+
+    fn rapid_moves(r: &ToolpathResult) -> usize {
+        r.toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Travel && !s.overscan)
+            .count()
+    }
+
+    #[test]
+    fn overscan_is_off_unless_a_fill_or_image_layer_asks_for_it() {
+        let plain = generate(&fill_project(vec![square(50.0, 50.0, 10.0)], 1.0, 0.0));
+        assert!(dark_moves(&plain).is_empty());
+        // Cut layers have no overscan, even if the value is set.
+        let mut cut = project_with(LayerKind::Cut, vec![square(50.0, 50.0, 10.0)]);
+        cut.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .overscan_mm = 5.0;
+        assert!(dark_moves(&generate(&cut)).is_empty());
+    }
+
+    #[test]
+    fn overscan_adds_laser_off_run_up_and_run_out_without_changing_the_burn() {
+        let plain = generate(&fill_project(vec![square(50.0, 50.0, 10.0)], 1.0, 0.0));
+        let with = generate(&fill_project(vec![square(50.0, 50.0, 10.0)], 1.0, 3.0));
+        assert_eq!(burns(&with), burns(&plain));
+        let segs = &with.toolpath.segments;
+        let first_burn = segs
+            .iter()
+            .position(|s| s.kind == MoveKind::Fill)
+            .unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        // Run-up: 3 mm before the first burn, on the same scan line, laser off.
+        let run_up = &segs[first_burn - 1];
+        assert!(run_up.overscan && run_up.kind == MoveKind::Travel && run_up.power_percent == 0.0);
+        assert!(
+            near(run_up.from.x, 47.0) && near(run_up.to.x, 50.0) && near(run_up.to.y, 50.5),
+            "{run_up:?}"
+        );
+        // Run-out: 3 mm past the end of the burn.
+        let run_out = &segs[first_burn + 1];
+        assert!(run_out.overscan);
+        assert!(
+            near(run_out.from.x, 60.0) && near(run_out.to.x, 63.0),
+            "{run_out:?}"
+        );
+        // Dark moves run at the layer's feed rate, not the rapid rate.
+        assert!(dark_moves(&with).iter().all(|s| s.feed_mm_min == 3000.0));
+    }
+
+    #[test]
+    fn fill_lines_are_joined_at_feed_rate_instead_of_stopping_between_them() {
+        let r = generate(&fill_project(vec![square(50.0, 50.0, 10.0)], 1.0, 3.0));
+        // The only rapid move is the approach to the first run-up.
+        assert_eq!(rapid_moves(&r), 1);
+        // Ten lines: ten run-ups, ten run-outs and nine joins between lines.
+        assert_eq!(dark_moves(&r).len(), 29);
+    }
+
+    #[test]
+    fn overscan_never_leaves_the_bed() {
+        // The shape touches the right edge of the 300 mm bed, so no run-out is possible there.
+        let r = generate(&fill_project(vec![square(290.0, 100.0, 10.0)], 1.0, 5.0));
+        for s in &r.toolpath.segments {
+            for q in [s.from, s.to] {
+                assert!(
+                    q.x >= -1e-6 && q.x <= 300.0 + 1e-6 && q.y >= -1e-6 && q.y <= 300.0 + 1e-6,
+                    "{s:?}"
+                );
+            }
+        }
+        // The left-hand side has room, so those run-ups and run-outs are kept.
+        assert!(dark_moves(&r)
+            .iter()
+            .any(|s| s.from.x.min(s.to.x) < 288.0));
+    }
+
+    #[test]
+    fn distant_runs_on_one_line_each_get_their_own_run_up_and_run_out() {
+        let shapes = || vec![square(50.0, 100.0, 10.0), square(150.0, 100.0, 10.0)];
+        let plain = generate(&fill_project(shapes(), 5.0, 0.0));
+        let with = generate(&fill_project(shapes(), 5.0, 2.0));
+        assert_eq!(burns(&with), burns(&plain));
+        // Nothing crosses the 90 mm gap at feed rate: the gap is a rapid move.
+        assert!(dark_moves(&with)
+            .iter()
+            .all(|s| s.from.distance_to(&s.to) <= 5.0 + 1e-6));
+        assert!(rapid_moves(&with) >= 3, "{}", rapid_moves(&with));
+    }
+
+    #[test]
+    fn raster_lines_get_run_ups_and_run_outs_and_the_burn_is_unchanged() {
+        // Row 0: black black white black. Placed away from the bed edge so nothing is clamped.
+        let (mut p, bytes) = raster_project([[0, 0, 255, 0], [255; 4]], false);
+        p.objects[0].transform = Transform2D::translate(100.0, 100.0);
+        let plain = engrave(&p, &bytes);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap()
+            .overscan_mm = 1.0;
+        assert_eq!(engrave(&p, &bytes), plain);
+        let plan = plan_operations(&p);
+        let tp = generate_toolpath(&p, &plan.operations, &bytes)
+            .unwrap()
+            .toolpath;
+        let dark: Vec<&ToolpathSegment> = tp.segments.iter().filter(|s| s.overscan).collect();
+        // Run-up, the 0.1 mm gap between the two runs (crossed, not stopped), and run-out.
+        assert_eq!(dark.len(), 3, "{dark:?}");
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert!(near(dark[0].from.x, 99.0) && near(dark[0].to.x, 100.0));
+        assert!(near(dark[1].from.x, 100.2) && near(dark[1].to.x, 100.3));
+        assert!(near(dark[2].from.x, 100.4) && near(dark[2].to.x, 101.4));
+    }
 
     #[test]
     fn travel_starts_from_the_machine_origin_in_workspace_terms() {

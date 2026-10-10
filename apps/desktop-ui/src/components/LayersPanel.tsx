@@ -189,6 +189,9 @@ function LayerCard({
             <label>Cross-hatch</label>
             <input type="checkbox" checked={layer.cross_hatch} onChange={(e) => patch('hatch', (l) => (l.cross_hatch = e.target.checked))} />
             <span className="unit" />
+            <label>Overscan</label>
+            <NumberField value={layer.overscan_mm ?? 0} min={0} max={25} onCommit={(v) => patch('overscan-fill', (l) => (l.overscan_mm = v))} />
+            <span className="unit">mm (0 = off)</span>
           </>
         )}
 
@@ -213,6 +216,9 @@ function LayerCard({
             <label>Bidirectional</label>
             <input type="checkbox" checked={layer.raster.bidirectional} onChange={(e) => patchRaster('bidirectional', e.target.checked)} />
             <span className="unit" />
+            <label>Overscan</label>
+            <NumberField value={layer.overscan_mm ?? 0} min={0} max={25} onCommit={(v) => patch('overscan-image', (l) => (l.overscan_mm = v))} />
+            <span className="unit">mm (0 = off)</span>
             <label>Brightness</label>
             <NumberField value={layer.raster.brightness} min={-100} max={100} onCommit={(v) => patchRaster('brightness', v)} />
             <span className="unit" />

@@ -110,6 +110,23 @@ pub fn check_project(project: &ProjectFile) -> SafetyReport {
             project.settings.job_origin.label()
         ));
     }
+    let overscan_mm = project
+        .layers
+        .iter()
+        .filter(|l| {
+            l.enabled
+                && matches!(
+                    l.kind,
+                    makerlaser_common::LayerKind::Fill | makerlaser_common::LayerKind::Image
+                )
+        })
+        .map(|l| l.overscan_mm)
+        .fold(0.0_f64, f64::max);
+    if overscan_mm > 0.0 && project.settings.start_from.is_relative() {
+        report.warnings.push(format!(
+            "Overscan adds up to {overscan_mm:.1} mm of laser-off travel beyond each end of every scan line. Start From is relative to the laser head, so MakerLaser cannot keep that inside the bed: leave at least that much clear space around the artwork, and use Frame first."
+        ));
+    }
     report
 }
 
@@ -135,6 +152,7 @@ mod tests {
                 feed_mm_min: 300.0,
                 power_percent: 80.0,
                 air_assist: false,
+                overscan: false,
             })
             .collect();
         Toolpath { segments }
@@ -157,6 +175,27 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("Start From is Current position") && w.contains("centre")));
+    }
+
+    #[test]
+    fn overscan_with_a_relative_start_is_warned_about_but_not_blocked() {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .overscan_mm = 3.0;
+        assert!(!check_project(&p)
+            .warnings
+            .iter()
+            .any(|w| w.contains("Overscan")));
+        p.settings = serde_json::from_str(
+            r#"{"units":"mm","grid_spacing_mm":10.0,"show_grid":true,"show_origin":true,"start_from":"current_position","job_origin":"center"}"#,
+        )
+        .unwrap();
+        let r = check_project(&p);
+        assert!(r.is_safe_to_run());
+        assert!(r.warnings.iter().any(|w| w.contains("Overscan adds up to 3.0 mm")));
     }
 
     #[test]

@@ -224,3 +224,46 @@ fn bed_corner_points_map_to_machine_corners() {
         Point2::new(300.0, 0.0)
     );
 }
+
+#[test]
+fn overscan_removes_the_stop_at_every_scan_line_and_never_moves_rapidly_with_the_laser_on() {
+    let svg = parse_svg(&fixture("nested.svg")).unwrap();
+    let mut project = project_with(svg.paths, LayerKind::Fill, 100.0, 100.0);
+    project
+        .layers
+        .iter_mut()
+        .find(|l| l.kind == LayerKind::Fill)
+        .unwrap()
+        .line_spacing_mm = 1.0;
+    let plain = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    project
+        .layers
+        .iter_mut()
+        .find(|l| l.kind == LayerKind::Fill)
+        .unwrap()
+        .overscan_mm = 3.0;
+    let job = build_job(&project, &HashMap::new(), &GcodeOptions::default()).unwrap();
+    assert!(job.safety.is_safe_to_run(), "{:?}", job.safety);
+    assert!(!plain.gcode.contains("M4 S0\n"));
+    assert!(job.gcode.contains("M4 S0\n"));
+    // Without overscan the laser is switched off (M5) before the rapid move to every scan line.
+    // With it the head keeps moving, so there are far fewer.
+    assert!(
+        job.gcode.matches("M5\n").count() < plain.gcode.matches("M5\n").count(),
+        "with overscan {} / without {}",
+        job.gcode.matches("M5\n").count(),
+        plain.gcode.matches("M5\n").count()
+    );
+    // The laser is never on during a rapid move, and the program ends with it off.
+    let mut laser_on = false;
+    for line in job.gcode.lines() {
+        if line.starts_with("M4") || line.starts_with("M3") {
+            laser_on = true;
+        } else if line.starts_with("M5") {
+            laser_on = false;
+        } else if line.starts_with("G0") {
+            assert!(!laser_on, "rapid move with the laser on: {line}");
+        }
+    }
+    assert!(!laser_on, "program must end with the laser off");
+}
