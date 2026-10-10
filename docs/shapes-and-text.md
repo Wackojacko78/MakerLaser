@@ -69,5 +69,7 @@ these files as ordinary artwork and ignore the settings.
   Generate will warn you if anything leaves the bed.
 - Typing in a box does not trigger the app's shortcuts, so Delete and the arrow keys do what a text
   box expects.
-- The Tools panel buttons have no keyboard shortcuts yet.
+- Tool shortcuts: **R** rectangle, **E** ellipse, **P** polygon, **S** star, **T** text. Press the same key
+  again to put the tool down. **V** is Select and **M** is Measure. The keys do nothing while you are
+  typing in a box or a dialog is open, and with Ctrl, Alt or Shift held (so Ctrl+S still saves).
 - Curves are built to within 0.02 mm of the true curve.

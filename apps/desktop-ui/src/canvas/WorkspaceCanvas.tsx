@@ -544,7 +544,7 @@ export function WorkspaceCanvas() {
       <CanvasEditor container={{ left: canvasPos.left, top: canvasPos.top, width: size.w, height: size.h }} />
       <div className="canvas-hint">
         Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift: add to
-        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; Esc: leave a drawing tool
+        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; R E P S T: draw &middot; Esc: leave a drawing tool
       </div>
     </div>
   );

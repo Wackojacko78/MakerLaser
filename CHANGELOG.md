@@ -29,6 +29,8 @@
 - 35 fonts built in (sans-serif, serif, slab, display, script and monospace) and a grouped font list;
   more of the fonts installed on the computer are found too. See docs/fonts.md.
 - Fixed: choosing the generic serif or monospace font drew sans-serif.
+- Tool shortcuts: R, E, P, S and T pick the drawing tools.
+- Toolpath preview: laser-off moves are drawn faintly, and a Travel tick box hides them. See docs/preview.md.
 
 ### Changed
 - Frontend toolchain upgraded to Vite 7 and Vitest 4.

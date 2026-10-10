@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { importFromDialog } from '@/lib/actions';
 import type { DrawTool } from '@/lib/inlineEdit';
+import { shortcutHint, toolForKey } from '@/lib/toolShortcuts';
 import { useEditStore } from '@/state/editStore';
 import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -27,6 +28,22 @@ export function ToolsPanel() {
   useEffect(() => {
     if (tool === 'measure' && drawTool !== null) setDrawTool(null);
   }, [tool, drawTool, setDrawTool]);
+
+  // R, E, P, S and T pick the drawing tools; pressing the same key again puts the tool down.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target;
+      const target = el instanceof HTMLElement ? { tag: el.tagName, contentEditable: el.isContentEditable } : null;
+      const wanted = toolForKey(e, target, document.querySelector('.modal-backdrop') !== null);
+      if (wanted === null) return;
+      e.preventDefault();
+      const current = useEditStore.getState().tool;
+      useMeasureStore.getState().setTool('select');
+      setDrawTool(current === wanted ? null : wanted);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setDrawTool]);
 
   const zoomBy = (factor: number) => {
     const next = Math.min(12, Math.max(0.1, view.scale * factor));
@@ -62,7 +79,7 @@ export function ToolsPanel() {
         <button
           key={t.tool}
           className={drawTool === t.tool ? 'tool active' : 'tool'}
-          title={t.title}
+          title={`${t.title} (${shortcutHint(t.tool)})`}
           onClick={() => {
             setTool('select');
             setDrawTool(drawTool === t.tool ? null : t.tool);

@@ -20,6 +20,7 @@ Since 0.1.0:
 * Console command box: read and change controller settings, for example `$$` and `$32=1` (docs/console.md).
 * Shapes and text drawn straight on the canvas (drag or click, type sizes, Tab between boxes) and edited in place (docs/shapes-and-text.md).
 * 35 built-in fonts and a grouped font list (docs/fonts.md).
+* Tool shortcuts (R, E, P, S, T) and a Travel switch for the toolpath preview (docs/preview.md).
 
 ## Next
 

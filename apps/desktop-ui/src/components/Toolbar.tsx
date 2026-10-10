@@ -8,6 +8,7 @@ import {
   saveFlow,
 } from '@/lib/actions';
 import { useJobStore } from '@/state/jobStore';
+import { previewOptions, usePreviewOptions } from '@/state/previewStore';
 import { useProjectStore } from '@/state/projectStore';
 import { useViewStore } from '@/state/viewStore';
 import { MachineSettingsDialog } from '@/components/MachineSettingsDialog';
@@ -34,6 +35,7 @@ export function Toolbar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
+  const travel = usePreviewOptions();
 
   if (!project) return null;
 
@@ -91,6 +93,18 @@ export function Toolbar() {
         <label className="check" title="Show the toolpath preview over the artwork">
           <input type="checkbox" checked={showPreview} disabled={!hasResult} onChange={(e) => setShowPreview(e.target.checked)} />
           Preview
+        </label>
+        <label
+          className="check"
+          title="Show the laser-off moves in the preview: travel between shapes and across gaps, and overscan run-ups. They are drawn faintly. Hiding them changes nothing about the job."
+        >
+          <input
+            type="checkbox"
+            checked={travel.showTravel}
+            disabled={!hasResult || !showPreview}
+            onChange={(e) => previewOptions.setShowTravel(e.target.checked)}
+          />
+          Travel
         </label>
         <button className="primary" onClick={() => void generateFlow()} disabled={busy || running} title="Generate toolpath and G-code (Ctrl+Enter)">
           {busy ? 'Generating…' : 'Generate & Preview'}

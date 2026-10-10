@@ -12,6 +12,8 @@ import {
   pathStartMarkers,
   prepareToolpath,
 } from '@/lib/toolpath';
+import { TRAVEL_OPACITY, shouldDrawKind } from '@/lib/previewOptions';
+import { usePreviewOptions } from '@/state/previewStore';
 import type { PreviewSegment } from '@/types/domain';
 
 interface Props {
@@ -23,8 +25,9 @@ interface Props {
   viewScale: number;
 }
 
-const STYLES: Array<{ kind: number; color: string; width: number; dash?: number[] }> = [
-  { kind: KIND_TRAVEL, color: '#7d8a97', width: 1, dash: [3, 4] },
+const STYLES: Array<{ kind: number; color: string; width: number; dash?: number[]; opacity?: number }> = [
+  // Laser-off moves (travel between shapes, overscan run-ups) are drawn faintly: there can be thousands.
+  { kind: KIND_TRAVEL, color: '#7d8a97', width: 1, dash: [3, 4], opacity: TRAVEL_OPACITY },
   { kind: KIND_FILL, color: '#2fd57b', width: 1 },
   { kind: KIND_ENGRAVE, color: '#b57bff', width: 1 },
   { kind: KIND_SCORE, color: '#4d9bff', width: 1.5 },
@@ -37,6 +40,7 @@ const STYLES: Array<{ kind: number; color: string; width: number; dash?: number[
  * part in hit testing.
  */
 export function ToolpathOverlay({ segments, fraction, bedWidth, bedHeight, viewScale }: Props) {
+  const { showTravel } = usePreviewOptions();
   const prepared = useMemo(() => prepareToolpath(segments), [segments]);
   const markers = useMemo(() => pathStartMarkers(prepared), [prepared]);
   const outside = useMemo(() => outsideBed(prepared, bedWidth, bedHeight), [prepared, bedWidth, bedHeight]);
@@ -50,13 +54,14 @@ export function ToolpathOverlay({ segments, fraction, bedWidth, bedHeight, viewS
 
   return (
     <Group listening={false}>
-      {STYLES.map((s) => (
+      {STYLES.filter((s) => shouldDrawKind(s.kind, showTravel)).map((s) => (
         <Shape
           key={s.kind}
           listening={false}
           stroke={s.color}
           strokeWidth={s.width}
           dash={s.dash}
+            opacity={s.opacity ?? 1}
           strokeScaleEnabled={false}
           perfectDrawEnabled={false}
           sceneFunc={(ctx, shape) => {
