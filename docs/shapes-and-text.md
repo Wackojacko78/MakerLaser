@@ -1,56 +1,73 @@
-# Shapes, and editing text and shapes
+# Shapes and text: drawing and editing on the canvas
 
-## Adding a shape
+Shapes and text are drawn straight on the canvas and edited in place. There are no pop-up boxes.
 
-**Toolbar > Shape...** opens a box with a live preview.
+## Drawing a shape
 
-| Shape | Settings |
+1. Pick **Rectangle**, **Ellipse**, **Polygon** or **Star** in the Tools panel on the left.
+2. Either **drag** on the canvas to the size you want, or just **click** to place a default-sized
+   shape centred on the click. While you drag, the outline and its size follow the pointer.
+   Hold **Shift** to keep it square (a circle, for the ellipse).
+3. A small editor opens next to the shape with a box for each size. The width box already has the
+   cursor: type a number, press **Tab** to go to the next box, type the next number, and press
+   **Enter** when you are done. The shape follows what you type.
+
+The tool goes back to Select after each shape. Press **Esc** (or **V**) to leave a drawing tool
+without drawing.
+
+| Shape | Boxes, in Tab order |
 |---|---|
-| Rectangle | Width, height, corner radius (0 for sharp corners) |
-| Ellipse / circle | Width, height (make them equal for a circle) |
-| Polygon | Width, height, number of sides (3 to 64) |
-| Star | Width, height, number of points (3 to 64), inner size (10 to 95%) |
+| Rectangle | W, H, Radius (corner radius) |
+| Ellipse | W, H (make them equal for a circle) |
+| Polygon | W, H, Sides (3 to 64) |
+| Star | W, H, Points (3 to 64), Inner (10 to 95 %) |
 
-Pick a **Laser mode** (Engrave, Outline or Cut) and press **Add to project**. The shape is placed in
-the middle of the bed on the layer for that mode. Drag it, or use the Properties panel, to move it.
+The size boxes also take a little sum: type `12.5*2` or `(40-4)/3` and the result is used. Only
+numbers, `+ - * /` and brackets are understood. Sizes are in mm, from 0.1 to 2000.
 
-- Sizes are from 0.1 mm to 2000 mm. The box warns when a shape is bigger than the bed.
-- A rectangle's corner radius is limited to half its short side. At that limit the ends are fully
-  round.
-- Odd polygons point up. Even ones sit flat, so four sides is an upright square and six is a hexagon
-  with a flat top and bottom.
-- A polygon or star is stretched to fill the width and height you give, so a 5-pointed star that is
-  40 x 40 mm is exactly 40 x 40 mm.
-- Curves are built to within 0.02 mm of the true curve.
+## Adding text
 
-## Editing text and shapes later
+1. Pick **Text** in the Tools panel and click where the text should start.
+2. A text box opens next to it with the word "Text" selected. Type your text. It is drawn on the
+   canvas as you type.
+3. Choose the font, size, bold, italic, alignment, line spacing and laser mode in the same box.
+4. Press **Esc** or **Ctrl+Enter** when you are done, or click anywhere else.
 
-Text and shapes remember what they were made from. To change one:
+Enter starts a new line in the text box. If you clear the box completely the last text that could be
+drawn is kept.
 
-- **Double-click** it on the canvas, or
-- select it and press **Edit text...** or **Edit shape...** in the Properties panel.
+## Editing later
 
-The same box opens with the current settings. Change anything, including the text itself, the font,
-the size, the shape, or the laser mode, and press **Save changes**. It is one undo step.
+- **Double-click** a shape or text to open the same editor next to it, or
+- select it and use the boxes in the **Properties** panel on the right. They are always there for a
+  single selected shape or text, and change it live.
 
-What stays and what changes:
+Everything is one undo step per burst of typing, so **Ctrl+Z** takes back an edit.
 
-- **Kept:** position (its top-left corner), rotation, layer (unless you change the Laser mode),
-  visibility, lock and stacking order.
-- **Size:** if you resized it with the handles, the box opens with that size in it. After saving, the
-  outlines are rebuilt at exactly the size shown, so nothing is left stretched. This is also how to
-  undo stretching on text: open it and save.
-- **Name:** renamed to match the new text or shape, unless you gave it a name yourself.
-- **Locked objects** cannot be edited. Unlock them first.
+What stays and what changes when you edit:
 
-Things that are not editable this way: imported SVG and DXF artwork, images, and text and shapes made
-before this version (they have no saved settings). Add them again to make them editable.
+- **Kept:** position (the top-left corner), rotation, layer (unless you change the laser mode),
+  visibility, lock and stacking order. A locked object cannot be edited: unlock it first.
+- **Size:** if you stretched it with the handles, the boxes show that size. After you change a box
+  the outlines are rebuilt at exactly the size shown, so nothing is left stretched.
+- **Name:** follows the text or shape unless you renamed it yourself.
 
-If you move, rotate or resize an editable object it stays editable. If you duplicate it, the copy is
-editable too. Anything that changes the outlines themselves, such as Arrange, still treats it as
-ordinary artwork.
+For a shape the Properties panel shows its own W and H, not the bounding box, so a rotated shape
+still shows its real width and height.
+
+Not editable this way: imported SVG and DXF artwork, images, and text or shapes made before they
+kept their settings. Add those again to make them editable.
 
 ## Saved files
 
 The settings are saved in the project file next to the outlines. Older versions of MakerLaser open
-these files as ordinary artwork (the settings are ignored there).
+these files as ordinary artwork and ignore the settings.
+
+## Tips and limits
+
+- A click places the shape on the bed. A drag stays exactly where you drew it, even over the edge:
+  Generate will warn you if anything leaves the bed.
+- Typing in a box does not trigger the app's shortcuts, so Delete and the arrow keys do what a text
+  box expects.
+- The Tools panel buttons have no keyboard shortcuts yet.
+- Curves are built to within 0.02 mm of the true curve.

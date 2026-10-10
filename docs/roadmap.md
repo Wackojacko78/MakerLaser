@@ -18,7 +18,7 @@ Since 0.1.0:
 * Linux notes (docs/linux.md) and an Ubuntu job in CI.
 * Frame with the laser on at low power (off by default; docs/framing.md).
 * Console command box: read and change controller settings, for example `$$` and `$32=1` (docs/console.md).
-* Shape objects (rectangle, ellipse, polygon, star) and editable text and shapes (docs/shapes-and-text.md).
+* Shapes and text drawn straight on the canvas (drag or click, type sizes, Tab between boxes) and edited in place (docs/shapes-and-text.md).
 
 ## Next
 
@@ -29,7 +29,7 @@ Since 0.1.0:
 
 ## Soon
 
-* Draw shapes by dragging on the canvas (the Shape... box is done).
+Shapes can now be drawn on the canvas (see Done).
 * Ramped power and a perimeter/outline fill mode.
 * SVG `<use>` and DXF `INSERT` (blocks), so imports stop losing geometry.
 * Inch display and a units setting wired into the UI (check what is already done).

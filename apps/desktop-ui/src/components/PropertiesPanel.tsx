@@ -1,7 +1,7 @@
 import { NumberField } from '@/components/NumberField';
+import { ObjectFields } from '@/components/ObjectFields';
 import { SelectionStats } from '@/components/SelectionStats';
 import { boundsHeight, boundsWidth, unionBounds, worldBounds } from '@/lib/transform';
-import { useEditStore } from '@/state/editStore';
 import { useProjectStore } from '@/state/projectStore';
 import type { Bounds } from '@/lib/transform';
 
@@ -13,7 +13,6 @@ export function PropertiesPanel() {
   const nudge = useProjectStore((s) => s.nudgeSelected);
   const resize = useProjectStore((s) => s.scaleSelectedAbout);
   const rotate = useProjectStore((s) => s.rotateSelected);
-  const openEdit = useEditStore((s) => s.open);
 
   if (!project) return null;
 
@@ -48,32 +47,24 @@ export function PropertiesPanel() {
             <label>Y</label>
             <NumberField value={box.minY} onCommit={(v) => nudge(0, v - box!.minY)} />
           </div>
-          <div className="field-row">
-            <label>W</label>
-            <NumberField
-              value={boundsWidth(box)}
-              min={0.1}
-              onCommit={(v) => boundsWidth(box!) > 1e-9 && resize(v / boundsWidth(box!), 1)}
-            />
-            <label>H</label>
-            <NumberField
-              value={boundsHeight(box)}
-              min={0.1}
-              onCommit={(v) => boundsHeight(box!) > 1e-9 && resize(1, v / boundsHeight(box!))}
-            />
-          </div>
-          <SelectionStats objects={chosen} units={project.settings.units} />
-          {only && editSource && (
-            <div className="field-row wide">
-              <button
-                disabled={only.locked}
-                onClick={() => openEdit(only.id)}
-                title={only.locked ? 'Unlock it to edit it' : 'Change the text or the shape settings (or double-click it)'}
-              >
-                {editSource.type === 'text' ? 'Edit text…' : 'Edit shape…'}
-              </button>
+          {editSource?.type !== 'shape' && (
+            <div className="field-row">
+              <label>W</label>
+              <NumberField
+                value={boundsWidth(box)}
+                min={0.1}
+                onCommit={(v) => boundsWidth(box!) > 1e-9 && resize(v / boundsWidth(box!), 1)}
+              />
+              <label>H</label>
+              <NumberField
+                value={boundsHeight(box)}
+                min={0.1}
+                onCommit={(v) => boundsHeight(box!) > 1e-9 && resize(1, v / boundsHeight(box!))}
+              />
             </div>
           )}
+          <SelectionStats objects={chosen} units={project.settings.units} />
+          {only && editSource && !only.locked && <ObjectFields id={only.id} variant="panel" />}
           <div className="field-row wide">
             <button onClick={() => rotate(-90)} title="Rotate 90° anticlockwise">⟲ 90°</button>
             <button onClick={() => rotate(90)} title="Rotate 90° clockwise">⟳ 90°</button>
