@@ -9,9 +9,12 @@
 //!   exports describe profiles as loose LINE/ARC entities and kerf compensation and
 //!   cut ordering both need closed paths.
 //!
-//! Everything else (`INSERT`, `TEXT`, `HATCH`, `DIMENSION`, ...) is reported as a warning.
+//! `INSERT` (a reference to a block) is expanded: the block's contents are placed at the insertion
+//! point with its scale and rotation, including arrays (`MINSERT`) and blocks inside blocks.
+//!
+//! Everything else (`TEXT`, `HATCH`, `DIMENSION`, ...) is reported as a warning.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::f64::consts::PI;
 
 use makerlaser_common::{Path2D, Point2};
@@ -119,6 +122,233 @@ fn first_int(ent: &[Pair], code: i32) -> Option<i64> {
         .and_then(|p| p.value.parse().ok())
 }
 
+/// Limits on `INSERT`: how many block copies one import places, how deeply blocks may nest, and how
+/// many paths the copies may add up to. Without them, a block that inserts the previous block ten
+/// times, nine levels down, would ask for billions of copies.
+const MAX_INSERT_DEPTH: usize = 16;
+const MAX_INSERT_COPIES: usize = 50_000;
+const MAX_INSERT_PATHS: usize = 1_000_000;
+/// How much finer a block's curves are flattened to make up for a large scale (see `expand_insert`).
+const MAX_TOLERANCE_REFINEMENT: f64 = 1000.0;
+
+/// A block from the BLOCKS section: its base point and the entities it is made of.
+struct Block {
+    base: (f64, f64),
+    entities: Vec<Vec<Pair>>,
+}
+
+/// The block definitions, by name in capitals (DXF block names are not case sensitive).
+type Blocks = HashMap<String, Block>;
+
+/// What an import has used up so far, shared by every `INSERT` it expands.
+#[derive(Default)]
+struct InsertState {
+    /// The blocks being expanded right now, outermost first. A block that contains itself would
+    /// appear twice.
+    stack: Vec<String>,
+    /// Block copies placed so far.
+    copies: usize,
+}
+
+/// The pairs of the named section, as a range: from just after its name to its `ENDSEC`.
+fn section_range(pairs: &[Pair], name: &str) -> Option<(usize, usize)> {
+    for i in 0..pairs.len().saturating_sub(1) {
+        if pairs[i].code == 0
+            && pairs[i].value == "SECTION"
+            && pairs[i + 1].code == 2
+            && pairs[i + 1].value.eq_ignore_ascii_case(name)
+        {
+            let start = i + 2;
+            let mut end = start;
+            while end < pairs.len() && !(pairs[end].code == 0 && pairs[end].value == "ENDSEC") {
+                end += 1;
+            }
+            return Some((start, end));
+        }
+    }
+    None
+}
+
+/// Splits a run of pairs into entities: each begins at a group code 0.
+fn split_entities(slice: &[Pair]) -> Vec<&[Pair]> {
+    let mut entities = Vec::new();
+    let mut s = 0;
+    for i in 1..=slice.len() {
+        if i == slice.len() || slice[i].code == 0 {
+            if i > s && slice[s].code == 0 {
+                entities.push(&slice[s..i]);
+            }
+            s = i;
+        }
+    }
+    entities
+}
+
+/// Reads the block definitions out of the BLOCKS section (there may be none).
+fn read_blocks(pairs: &[Pair]) -> Blocks {
+    let mut blocks = Blocks::new();
+    let Some((start, end)) = section_range(pairs, "BLOCKS") else {
+        return blocks;
+    };
+    let mut open: Option<(String, Block)> = None;
+    for ent in split_entities(&pairs[start..end]) {
+        match ent[0].value.to_ascii_uppercase().as_str() {
+            "BLOCK" => {
+                if let Some((name, block)) = open.take() {
+                    blocks.entry(name).or_insert(block);
+                }
+                let name = ent
+                    .iter()
+                    .find(|p| p.code == 2)
+                    .map(|p| p.value.to_ascii_uppercase())
+                    .unwrap_or_default();
+                let base = (
+                    first_f64(ent, 10).unwrap_or(0.0),
+                    first_f64(ent, 20).unwrap_or(0.0),
+                );
+                open = Some((
+                    name,
+                    Block {
+                        base,
+                        entities: Vec::new(),
+                    },
+                ));
+            }
+            "ENDBLK" => {
+                if let Some((name, block)) = open.take() {
+                    blocks.entry(name).or_insert(block);
+                }
+            }
+            _ => {
+                if let Some((_, block)) = open.as_mut() {
+                    block.entities.push(ent.to_vec());
+                }
+            }
+        }
+    }
+    // A block that was never closed is still used.
+    if let Some((name, block)) = open.take() {
+        blocks.entry(name).or_insert(block);
+    }
+    blocks
+}
+
+/// Places copies of a block (an `INSERT` entity): the block's own entities are turned into paths
+/// once, then each copy is moved by the base point, scaled, turned and put at the insertion point.
+/// A column and row count (a `MINSERT` array) places a grid of copies, which turns with the insert.
+fn expand_insert(
+    ent: &[Pair],
+    tol: f64,
+    blocks: &Blocks,
+    state: &mut InsertState,
+    paths: &mut Vec<Path2D>,
+    warnings: &mut BTreeSet<String>,
+) {
+    let name = ent
+        .iter()
+        .find(|p| p.code == 2)
+        .map(|p| p.value.as_str())
+        .unwrap_or("");
+    let key = name.to_ascii_uppercase();
+    let Some(block) = blocks.get(&key) else {
+        warnings.insert(format!(
+            "An INSERT refers to the block '{name}', which is not in the file; it was skipped."
+        ));
+        return;
+    };
+    if state.stack.contains(&key) {
+        warnings.insert(format!(
+            "The block '{name}' contains itself; the inner copy was skipped."
+        ));
+        return;
+    }
+
+    let (sx, sy) = (
+        first_f64(ent, 41).unwrap_or(1.0),
+        first_f64(ent, 42).unwrap_or(1.0),
+    );
+    let (ix, iy) = (
+        first_f64(ent, 10).unwrap_or(0.0),
+        first_f64(ent, 20).unwrap_or(0.0),
+    );
+    let angle = first_f64(ent, 50).unwrap_or(0.0).to_radians();
+    let usable = [sx, sy, ix, iy, angle].iter().all(|v| v.is_finite());
+    if !usable || sx.abs() < 1e-12 || sy.abs() < 1e-12 {
+        warnings.insert(format!(
+            "An INSERT of the block '{name}' has a zero scale or an unusable position; it was skipped."
+        ));
+        return;
+    }
+    // A negative extrusion axis flips the insert's own X direction, which is not applied here.
+    if first_f64(ent, 230).is_some_and(|z| z < 0.0) {
+        warnings.insert(format!(
+            "The INSERT of the block '{name}' has a flipped (negative extrusion) axis, which is not applied: check which way the copy faces."
+        ));
+    }
+    let columns = first_int(ent, 70).unwrap_or(1).clamp(1, 1_000_000) as usize;
+    let rows = first_int(ent, 71).unwrap_or(1).clamp(1, 1_000_000) as usize;
+    let spacing = |code: i32| {
+        first_f64(ent, code)
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.0)
+    };
+    let (dx, dy) = (spacing(44), spacing(45));
+
+    let copies = columns.saturating_mul(rows);
+    if state.stack.len() >= MAX_INSERT_DEPTH
+        || state.copies.saturating_add(copies) > MAX_INSERT_COPIES
+    {
+        warnings.insert(
+            "Too many block copies (or blocks nested too deeply): the rest were skipped."
+                .to_string(),
+        );
+        return;
+    }
+    state.copies += copies;
+
+    // The block's curves are flattened in the block's own units and then scaled with it, so the
+    // tolerance is divided by the scale. Otherwise a block drawn small and scaled up by 100 would
+    // come out as coarse polygons.
+    let entities: Vec<&[Pair]> = block.entities.iter().map(|e| e.as_slice()).collect();
+    let mut inner: Vec<Path2D> = Vec::new();
+    let block_tol = (tol / sx.abs().max(sy.abs())).max(tol / MAX_TOLERANCE_REFINEMENT);
+    state.stack.push(key);
+    convert_entities(&entities, block_tol, blocks, state, &mut inner, warnings);
+    state.stack.pop();
+
+    if paths
+        .len()
+        .saturating_add(inner.len().saturating_mul(copies))
+        > MAX_INSERT_PATHS
+    {
+        warnings.insert(
+            "Too many block copies (or blocks nested too deeply): the rest were skipped."
+                .to_string(),
+        );
+        return;
+    }
+
+    let (sin, cos) = angle.sin_cos();
+    for row in 0..rows {
+        for column in 0..columns {
+            // The rows and columns of an array turn with the insert.
+            let (ox, oy) = (column as f64 * dx, row as f64 * dy);
+            let (px, py) = (ix + ox * cos - oy * sin, iy + ox * sin + oy * cos);
+            for path in &inner {
+                let points = path
+                    .points
+                    .iter()
+                    .map(|q| {
+                        let (x, y) = ((q.x - block.base.0) * sx, (q.y - block.base.1) * sy);
+                        Point2::new(px + x * cos - y * sin, py + x * sin + y * cos)
+                    })
+                    .collect();
+                paths.push(Path2D::new(points, path.closed));
+            }
+        }
+    }
+}
+
 pub fn parse_dxf(content: &str) -> Result<DxfImportResult> {
     let pairs = tokenize(content);
     if pairs.is_empty() {
@@ -148,6 +378,29 @@ pub fn parse_dxf(content: &str) -> Result<DxfImportResult> {
 
     let mut paths: Vec<Path2D> = Vec::new();
     let mut warnings: BTreeSet<String> = BTreeSet::new();
+    let blocks = read_blocks(&pairs);
+    let mut state = InsertState::default();
+    convert_entities(
+        &entities,
+        tol,
+        &blocks,
+        &mut state,
+        &mut paths,
+        &mut warnings,
+    );
+    finish_import(paths, warnings, scale, unit_warning)
+}
+
+/// Turns entities into paths, in drawing units and the DXF's own Y-up orientation. An `INSERT` calls
+/// this again for the entities of its block.
+fn convert_entities(
+    entities: &[&[Pair]],
+    tol: f64,
+    blocks: &Blocks,
+    state: &mut InsertState,
+    paths: &mut Vec<Path2D>,
+    warnings: &mut BTreeSet<String>,
+) {
     let mut k = 0;
     while k < entities.len() {
         let ent = entities[k];
@@ -248,13 +501,21 @@ pub fn parse_dxf(content: &str) -> Result<DxfImportResult> {
                 }
             },
             "POINT" | "VERTEX" | "SEQEND" | "" => {}
+            "INSERT" => expand_insert(ent, tol, blocks, state, paths, warnings),
             other => {
                 warnings.insert(format!("Unsupported DXF entity skipped: {other}"));
             }
         }
     }
+}
 
-    // Y-up -> Y-down mirror and unit conversion, then join loose segments.
+/// Y-up -> Y-down mirror and unit conversion, then join loose segments.
+fn finish_import(
+    paths: Vec<Path2D>,
+    warnings: BTreeSet<String>,
+    scale: f64,
+    unit_warning: Option<String>,
+) -> Result<DxfImportResult> {
     let mut converted: Vec<Path2D> = paths
         .into_iter()
         .map(|mut p| {
@@ -737,6 +998,434 @@ mod tests {
         .unwrap();
         assert_eq!(r.paths.len(), 1);
         assert_eq!(r.warnings.iter().filter(|w| w.contains("MTEXT")).count(), 1);
+    }
+
+    // ---- INSERT (blocks) -------------------------------------------------------------------
+
+    fn pair(code: i32, value: &str) -> (i32, String) {
+        (code, value.to_string())
+    }
+
+    /// A BLOCK ... ENDBLK definition with the given base point and contents.
+    fn block(
+        name: &str,
+        base: (&str, &str),
+        contents: Vec<Vec<(i32, String)>>,
+    ) -> Vec<(i32, String)> {
+        let mut out = vec![
+            pair(0, "BLOCK"),
+            pair(2, name),
+            pair(70, "0"),
+            pair(10, base.0),
+            pair(20, base.1),
+            pair(30, "0"),
+            pair(3, name),
+        ];
+        out.extend(contents.into_iter().flatten());
+        out.push(pair(0, "ENDBLK"));
+        out
+    }
+
+    fn insert(name: &str, x: &str, y: &str) -> Vec<(i32, String)> {
+        vec![pair(0, "INSERT"), pair(2, name), pair(10, x), pair(20, y)]
+    }
+
+    /// An INSERT with a scale (x, y) and a rotation in degrees.
+    fn insert_scaled(
+        name: &str,
+        at: (&str, &str),
+        scale: (&str, &str),
+        angle: &str,
+    ) -> Vec<(i32, String)> {
+        let mut v = insert(name, at.0, at.1);
+        v.extend([pair(41, scale.0), pair(42, scale.1), pair(50, angle)]);
+        v
+    }
+
+    /// A closed 10 x 10 square from (x, y), as a closed LWPOLYLINE.
+    fn square(x: f64, y: f64) -> Vec<(i32, String)> {
+        let corners = [(x, y), (x + 10.0, y), (x + 10.0, y + 10.0), (x, y + 10.0)];
+        let mut v = vec![pair(0, "LWPOLYLINE"), pair(70, "1")];
+        for (cx, cy) in corners {
+            v.push(pair(10, &cx.to_string()));
+            v.push(pair(20, &cy.to_string()));
+        }
+        v
+    }
+
+    fn circle(radius: &str) -> Vec<(i32, String)> {
+        vec![
+            pair(0, "CIRCLE"),
+            pair(10, "0"),
+            pair(20, "0"),
+            pair(40, radius),
+        ]
+    }
+
+    /// A DXF with a BLOCKS section and an ENTITIES section, in the given $INSUNITS.
+    fn doc_with_blocks_in(
+        units: &str,
+        blocks: Vec<Vec<(i32, String)>>,
+        ents: Vec<Vec<(i32, String)>>,
+    ) -> String {
+        let mut s = String::new();
+        let mut add = |pairs: &[(i32, String)]| {
+            for (c, v) in pairs {
+                s.push_str(&format!("{c}\n{v}\n"));
+            }
+        };
+        add(&[
+            pair(0, "SECTION"),
+            pair(2, "HEADER"),
+            pair(9, "$INSUNITS"),
+            pair(70, units),
+            pair(0, "ENDSEC"),
+            pair(0, "SECTION"),
+            pair(2, "BLOCKS"),
+        ]);
+        for b in &blocks {
+            add(b.as_slice());
+        }
+        add(&[pair(0, "ENDSEC"), pair(0, "SECTION"), pair(2, "ENTITIES")]);
+        for e in &ents {
+            add(e.as_slice());
+        }
+        add(&[pair(0, "ENDSEC"), pair(0, "EOF")]);
+        s
+    }
+
+    fn doc_with_blocks(blocks: Vec<Vec<(i32, String)>>, ents: Vec<Vec<(i32, String)>>) -> String {
+        doc_with_blocks_in("4", blocks, ents)
+    }
+
+    /// The smallest box around all the paths: (min x, min y, max x, max y).
+    fn extent(paths: &[Path2D]) -> (f64, f64, f64, f64) {
+        let mut e = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for p in paths {
+            for q in &p.points {
+                e = (e.0.min(q.x), e.1.min(q.y), e.2.max(q.x), e.3.max(q.y));
+            }
+        }
+        e
+    }
+
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    #[test]
+    fn insert_places_a_copy_of_the_block_at_the_insertion_point() {
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![insert("SQ", "100", "50")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 1);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert!(r.paths[0].closed);
+        // Y is mirrored on import: DXF y 50..60 becomes -60..-50.
+        let (x0, y0, x1, y1) = extent(&r.paths);
+        assert!(near(x0, 100.0) && near(x1, 110.0) && near(y0, -60.0) && near(y1, -50.0));
+    }
+
+    #[test]
+    fn the_base_point_of_the_block_lands_on_the_insertion_point() {
+        // The square is drawn at 5..15 with its base point at (5, 5), so it is placed from 100.
+        let d = doc_with_blocks(
+            vec![block("SQ", ("5", "5"), vec![square(5.0, 5.0)])],
+            vec![insert("SQ", "100", "50")],
+        );
+        let (x0, _, x1, _) = extent(&parse_dxf(&d).unwrap().paths);
+        assert!(near(x0, 100.0) && near(x1, 110.0), "{x0} {x1}");
+    }
+
+    #[test]
+    fn block_names_are_not_case_sensitive() {
+        let d = doc_with_blocks(
+            vec![block("Bolt", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![insert("BOLT", "0", "0"), insert("bolt", "50", "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 2);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    }
+
+    #[test]
+    fn scale_and_rotation_are_applied_in_that_order() {
+        // A line 10 long, scaled by 2 (20 long) and turned 90 degrees anticlockwise (DXF is Y-up):
+        // it points straight up, so after the mirror it runs from y = 0 to y = -20.
+        let d = doc_with_blocks(
+            vec![block("BAR", ("0", "0"), vec![line("0", "0", "10", "0")])],
+            vec![insert_scaled("BAR", ("0", "0"), ("2", "2"), "90")],
+        );
+        let (x0, y0, x1, y1) = extent(&parse_dxf(&d).unwrap().paths);
+        assert!(near(x0, 0.0) && near(x1, 0.0), "{x0} {x1}");
+        assert!(near(y0, -20.0) && near(y1, 0.0), "{y0} {y1}");
+    }
+
+    #[test]
+    fn a_negative_scale_mirrors_the_block() {
+        let d = doc_with_blocks(
+            vec![block("BAR", ("0", "0"), vec![line("0", "0", "10", "0")])],
+            vec![insert_scaled("BAR", ("0", "0"), ("-1", "1"), "0")],
+        );
+        let (x0, _, x1, _) = extent(&parse_dxf(&d).unwrap().paths);
+        assert!(near(x0, -10.0) && near(x1, 0.0), "{x0} {x1}");
+    }
+
+    #[test]
+    fn an_uneven_scale_stretches_a_circle_into_an_ellipse() {
+        let d = doc_with_blocks(
+            vec![block("DISC", ("0", "0"), vec![circle("5")])],
+            vec![insert_scaled("DISC", ("0", "0"), ("2", "1"), "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 1);
+        assert!(r.paths[0].closed);
+        let b = r.paths[0].bounding_box().unwrap();
+        assert!((b.width() - 20.0).abs() < 0.2, "{}", b.width());
+        assert!((b.height() - 10.0).abs() < 0.2, "{}", b.height());
+    }
+
+    #[test]
+    fn a_scaled_up_circle_is_as_smooth_as_one_drawn_at_full_size() {
+        let direct = parse_dxf(&doc(MM, vec![circle("100")])).unwrap();
+        let scaled = parse_dxf(&doc_with_blocks(
+            vec![block("DISC", ("0", "0"), vec![circle("1")])],
+            vec![insert_scaled("DISC", ("0", "0"), ("100", "100"), "0")],
+        ))
+        .unwrap();
+        let (a, b) = (direct.paths[0].points.len(), scaled.paths[0].points.len());
+        assert!(a > 50, "{a}");
+        assert!(
+            b * 10 >= a * 9,
+            "scaled {b} points against {a} drawn directly"
+        );
+    }
+
+    #[test]
+    fn blocks_inside_blocks_are_placed_through_every_level() {
+        let d = doc_with_blocks(
+            vec![
+                block("INNER", ("0", "0"), vec![line("0", "0", "5", "0")]),
+                block("OUTER", ("0", "0"), vec![insert("INNER", "10", "0")]),
+            ],
+            vec![insert("OUTER", "100", "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 1);
+        let (x0, _, x1, _) = extent(&r.paths);
+        assert!(near(x0, 110.0) && near(x1, 115.0), "{x0} {x1}");
+    }
+
+    #[test]
+    fn a_nested_block_is_scaled_and_turned_with_the_block_around_it() {
+        // INNER puts a 5 long line at x = 10. OUTER is inserted at 100, doubled and turned 90 degrees:
+        // the line ends up 10 long and runs up from (100, 20).
+        let d = doc_with_blocks(
+            vec![
+                block("INNER", ("0", "0"), vec![line("0", "0", "5", "0")]),
+                block("OUTER", ("0", "0"), vec![insert("INNER", "10", "0")]),
+            ],
+            vec![insert_scaled("OUTER", ("100", "0"), ("2", "2"), "90")],
+        );
+        let (x0, y0, x1, y1) = extent(&parse_dxf(&d).unwrap().paths);
+        assert!(near(x0, 100.0) && near(x1, 100.0), "{x0} {x1}");
+        // DXF y 20..30 becomes -30..-20.
+        assert!(near(y0, -30.0) && near(y1, -20.0), "{y0} {y1}");
+    }
+
+    #[test]
+    fn an_array_places_a_grid_of_copies() {
+        let mut array = insert("SQ", "0", "0");
+        array.extend([pair(70, "3"), pair(71, "2"), pair(44, "20"), pair(45, "15")]);
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![array],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 6);
+        let (x0, y0, x1, y1) = extent(&r.paths);
+        // Three columns 20 apart and two rows 15 apart, each square 10 across.
+        assert!(near(x0, 0.0) && near(x1, 50.0), "{x0} {x1}");
+        assert!(near(y0, -25.0) && near(y1, 0.0), "{y0} {y1}");
+    }
+
+    #[test]
+    fn an_array_turns_with_the_insert() {
+        let mut array = insert_scaled("SQ", ("0", "0"), ("1", "1"), "90");
+        array.extend([pair(70, "3"), pair(71, "2"), pair(44, "20"), pair(45, "15")]);
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![array],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 6);
+        let (x0, y0, x1, y1) = extent(&r.paths);
+        // Columns now run up and rows run left: 25 across and 50 up.
+        assert!((x0 + 25.0).abs() < 1e-6 && x1.abs() < 1e-6, "{x0} {x1}");
+        assert!((y0 + 50.0).abs() < 1e-6 && y1.abs() < 1e-6, "{y0} {y1}");
+    }
+
+    #[test]
+    fn units_still_apply_to_what_blocks_place() {
+        // Inches: a 1 inch line inserted 1 inch along runs from 25.4 to 50.8 mm.
+        let d = doc_with_blocks_in(
+            "1",
+            vec![block("BAR", ("0", "0"), vec![line("0", "0", "1", "0")])],
+            vec![insert("BAR", "1", "0")],
+        );
+        let (x0, _, x1, _) = extent(&parse_dxf(&d).unwrap().paths);
+        assert!(
+            (x0 - 25.4).abs() < 1e-9 && (x1 - 50.8).abs() < 1e-9,
+            "{x0} {x1}"
+        );
+    }
+
+    #[test]
+    fn an_insert_of_a_block_that_is_not_there_warns_and_draws_nothing_extra() {
+        let d = doc_with_blocks(
+            vec![],
+            vec![insert("NOPE", "0", "0"), line("0", "0", "1", "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 1);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("NOPE")),
+            "{:?}",
+            r.warnings
+        );
+        // A file with no BLOCKS section at all behaves the same.
+        let r = parse_dxf(&doc(MM, vec![insert("NOPE", "0", "0")])).unwrap();
+        assert!(r.paths.is_empty());
+        assert!(
+            r.warnings.iter().any(|w| w.contains("NOPE")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn a_block_that_contains_itself_is_not_followed_forever() {
+        let d = doc_with_blocks(
+            vec![block(
+                "LOOP",
+                ("0", "0"),
+                vec![line("0", "0", "10", "0"), insert("LOOP", "20", "0")],
+            )],
+            vec![insert("LOOP", "0", "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 1);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("contains itself")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn two_blocks_that_insert_each_other_stop() {
+        let d = doc_with_blocks(
+            vec![
+                block(
+                    "A",
+                    ("0", "0"),
+                    vec![square(0.0, 0.0), insert("B", "20", "0")],
+                ),
+                block("B", ("0", "0"), vec![insert("A", "20", "0")]),
+            ],
+            vec![insert("A", "0", "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert!(
+            !r.paths.is_empty() && r.paths.len() < 10,
+            "{}",
+            r.paths.len()
+        );
+        assert!(
+            r.warnings.iter().any(|w| w.contains("contains itself")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn a_flipped_extrusion_axis_is_placed_as_usual_but_warned_about() {
+        let mut flipped = insert("SQ", "0", "0");
+        flipped.extend([pair(210, "0"), pair(220, "0"), pair(230, "-1")]);
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![flipped, insert_scaled("SQ", ("50", "0"), ("1", "1"), "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert_eq!(r.paths.len(), 2);
+        assert_eq!(
+            r.warnings
+                .iter()
+                .filter(|w| w.contains("extrusion"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_zero_scale_is_skipped_with_a_warning() {
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![insert_scaled("SQ", ("0", "0"), ("0", "1"), "0")],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert!(r.paths.is_empty());
+        assert!(
+            r.warnings.iter().any(|w| w.contains("zero scale")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn nested_blocks_that_multiply_are_capped_rather_than_filling_the_computer() {
+        // Each block inserts the one below it ten times: eight levels would be a hundred million
+        // copies.
+        let mut blocks = vec![block("B0", ("0", "0"), vec![square(0.0, 0.0)])];
+        for level in 1..=8 {
+            let below = format!("B{}", level - 1);
+            let inserts = (0..10)
+                .map(|i| insert(&below, &(i * 11).to_string(), "0"))
+                .collect();
+            blocks.push(block(&format!("B{level}"), ("0", "0"), inserts));
+        }
+        let d = doc_with_blocks(blocks, vec![insert("B8", "0", "0")]);
+        let r = parse_dxf(&d).unwrap();
+        assert!(r.paths.len() <= MAX_INSERT_PATHS, "{}", r.paths.len());
+        assert!(
+            r.warnings.iter().any(|w| w.contains("Too many")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn a_huge_array_is_refused_instead_of_allocated() {
+        let mut array = insert("SQ", "0", "0");
+        array.extend([
+            pair(70, "100000"),
+            pair(71, "100000"),
+            pair(44, "11"),
+            pair(45, "11"),
+        ]);
+        let d = doc_with_blocks(
+            vec![block("SQ", ("0", "0"), vec![square(0.0, 0.0)])],
+            vec![array],
+        );
+        let r = parse_dxf(&d).unwrap();
+        assert!(r.paths.is_empty());
+        assert!(
+            r.warnings.iter().any(|w| w.contains("Too many")),
+            "{:?}",
+            r.warnings
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ architecture that leaves room for Ruida and galvo controllers later.
 | Area | Capabilities |
 |---|---|
 | Workspace | Pan/zoom canvas, grid, machine bed, origin marker, box and multi-select, move/resize/rotate, duplicate, delete, undo/redo, numeric position and size, native drag-and-drop |
-| Import | SVG (all path commands, nested transforms, units), DXF (LINE, ARC, CIRCLE, ELLIPSE, LWPOLYLINE with bulges, POLYLINE, SPLINE; units; auto-join into closed loops), PNG/JPG/JPEG/BMP |
+| Import | SVG (all path commands, nested transforms, units, `<use>` and `symbol`), DXF (LINE, ARC, CIRCLE, ELLIPSE, LWPOLYLINE with bulges, POLYLINE, SPLINE, INSERT blocks and arrays; units; auto-join into closed loops), PNG/JPG/JPEG/BMP |
 | Geometry | Clipper2 union / difference / intersection / XOR, offsetting, **kerf compensation** |
 | Raster | Brightness, contrast, gamma, invert; Floyd-Steinberg, Jarvis, Stucki, Atkinson; live preview; works with rotated and mirrored images |
 | CAM | Nesting-aware cut order (holes before the boundary that contains them), travel reduction, engrave-before-cut, whole-job passes, serpentine fill, bidirectional raster, overscan, a fill outline pass, ramped power on score lines |
