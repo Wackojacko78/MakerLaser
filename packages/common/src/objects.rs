@@ -1,6 +1,6 @@
 //! The object system: everything on the canvas is a [`WorkspaceObject`].
-//! `Text` and `Shape` objects are future work; both are expected to resolve to
-//! [`VectorData`] for CAM purposes, so adding them will not touch the CAM engine.
+//! Text and shapes are ordinary vector outlines as far as CAM is concerned. They are kept with their
+//! settings (`VectorData::source`) so they can be opened and edited again later.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -69,9 +69,84 @@ impl ImageData {
     }
 }
 
+/// What a vector object was made from, kept next to its outlines so the object can be opened and
+/// edited again. Imported artwork has none. The outlines stay the truth for the planner: this is only
+/// the recipe the user typed in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ObjectSource {
+    Text(TextSource),
+    Shape(ShapeSource),
+}
+
+/// The settings of a text object. The font is named, not embedded: on another computer without that
+/// font the text can still be edited, and is drawn in a default font until a font is picked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextSource {
+    pub text: String,
+    pub font_family: String,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    /// Letter height in mm.
+    pub cap_height_mm: f64,
+    /// "left", "center" or "right".
+    #[serde(default = "default_text_align")]
+    pub align: String,
+    #[serde(default = "default_line_spacing")]
+    pub line_spacing: f64,
+}
+
+fn default_text_align() -> String {
+    "left".to_string()
+}
+
+fn default_line_spacing() -> f64 {
+    1.2
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeKind {
+    Rectangle,
+    Ellipse,
+    Polygon,
+    Star,
+}
+
+/// The settings of a shape object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeSource {
+    pub shape: ShapeKind,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    /// Rectangles only.
+    #[serde(default)]
+    pub corner_radius_mm: f64,
+    /// Polygons: the number of sides. Stars: the number of points.
+    #[serde(default = "default_sides")]
+    pub sides: u32,
+    /// Stars only: the inner radius over the outer.
+    #[serde(default = "default_inner_ratio")]
+    pub inner_ratio: f64,
+}
+
+fn default_sides() -> u32 {
+    5
+}
+
+fn default_inner_ratio() -> f64 {
+    0.5
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VectorData {
     pub paths: Vec<Path2D>,
+    /// Set for text and shapes made in MakerLaser. Left out of the file when there is none, so
+    /// imported artwork is saved exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ObjectSource>,
 }
 
 impl VectorData {
@@ -107,7 +182,7 @@ impl WorkspaceObject {
         WorkspaceObject {
             id: Uuid::new_v4(),
             name: name.into(),
-            kind: ObjectKind::Vector(VectorData { paths }),
+            kind: ObjectKind::Vector(VectorData { paths, source: None }),
             transform: Transform2D::IDENTITY,
             layer_id: None,
             visible: true,
@@ -200,6 +275,93 @@ mod tests {
         assert!(json.contains("\"asset_id\""));
         let back: WorkspaceObject = serde_json::from_str(&json).unwrap();
         assert_eq!(back, obj);
+    }
+
+    #[test]
+    fn vectors_without_a_source_are_saved_and_loaded_as_before() {
+        let obj = WorkspaceObject::new_vector("sq", vec![], 0);
+        let json = serde_json::to_string(&obj).unwrap();
+        assert!(!json.contains("source"), "{json}");
+        let kind: ObjectKind = serde_json::from_str(r#"{"type":"vector","paths":[]}"#).unwrap();
+        match kind {
+            ObjectKind::Vector(v) => assert!(v.source.is_none()),
+            other => panic!("not a vector: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_text_source_survives_a_round_trip_with_the_names_the_frontend_expects() {
+        let mut obj = WorkspaceObject::new_vector("Text: Hi", vec![], 0);
+        if let ObjectKind::Vector(v) = &mut obj.kind {
+            v.source = Some(ObjectSource::Text(TextSource {
+                text: "Hi\nthere".to_string(),
+                font_family: "Arial".to_string(),
+                bold: true,
+                italic: false,
+                cap_height_mm: 10.0,
+                align: "center".to_string(),
+                line_spacing: 1.2,
+            }));
+        }
+        let json = serde_json::to_string(&obj).unwrap();
+        assert!(json.contains(r#""source":{"type":"text""#), "{json}");
+        assert!(json.contains(r#""font_family":"Arial""#), "{json}");
+        assert!(json.contains(r#""cap_height_mm":10.0"#), "{json}");
+        let back: WorkspaceObject = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, obj);
+    }
+
+    #[test]
+    fn a_shape_source_survives_a_round_trip_with_the_names_the_frontend_expects() {
+        let mut obj = WorkspaceObject::new_vector("Rectangle", vec![], 0);
+        if let ObjectKind::Vector(v) = &mut obj.kind {
+            v.source = Some(ObjectSource::Shape(ShapeSource {
+                shape: ShapeKind::Rectangle,
+                width_mm: 40.0,
+                height_mm: 20.0,
+                corner_radius_mm: 3.0,
+                sides: 6,
+                inner_ratio: 0.5,
+            }));
+        }
+        let json = serde_json::to_string(&obj).unwrap();
+        assert!(json.contains(r#""source":{"type":"shape","shape":"rectangle""#), "{json}");
+        let back: WorkspaceObject = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, obj);
+        for (kind, name) in [
+            (ShapeKind::Ellipse, "ellipse"),
+            (ShapeKind::Polygon, "polygon"),
+            (ShapeKind::Star, "star"),
+        ] {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{name}\""));
+        }
+    }
+
+    #[test]
+    fn a_source_with_only_the_essential_fields_loads_with_sensible_defaults() {
+        let shape: ObjectSource = serde_json::from_str(
+            r#"{"type":"shape","shape":"star","width_mm":10.0,"height_mm":10.0}"#,
+        )
+        .unwrap();
+        match shape {
+            ObjectSource::Shape(s) => {
+                assert_eq!((s.sides, s.inner_ratio, s.corner_radius_mm), (5, 0.5, 0.0));
+            }
+            other => panic!("not a shape: {other:?}"),
+        }
+        let text: ObjectSource = serde_json::from_str(
+            r#"{"type":"text","text":"Hi","font_family":"Arial","cap_height_mm":8.0}"#,
+        )
+        .unwrap();
+        match text {
+            ObjectSource::Text(t) => {
+                assert_eq!(
+                    (t.bold, t.italic, t.align.as_str(), t.line_spacing),
+                    (false, false, "left", 1.2)
+                );
+            }
+            other => panic!("not text: {other:?}"),
+        }
     }
 
     #[test]

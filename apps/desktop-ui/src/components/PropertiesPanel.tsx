@@ -1,6 +1,7 @@
 import { NumberField } from '@/components/NumberField';
 import { SelectionStats } from '@/components/SelectionStats';
 import { boundsHeight, boundsWidth, unionBounds, worldBounds } from '@/lib/transform';
+import { useEditStore } from '@/state/editStore';
 import { useProjectStore } from '@/state/projectStore';
 import type { Bounds } from '@/lib/transform';
 
@@ -12,10 +13,14 @@ export function PropertiesPanel() {
   const nudge = useProjectStore((s) => s.nudgeSelected);
   const resize = useProjectStore((s) => s.scaleSelectedAbout);
   const rotate = useProjectStore((s) => s.rotateSelected);
+  const openEdit = useEditStore((s) => s.open);
 
   if (!project) return null;
 
   const chosen = project.objects.filter((o) => selected.includes(o.id));
+  // One text or shape object selected: it can be opened and edited again.
+  const only = chosen.length === 1 ? chosen[0] : undefined;
+  const editSource = only && only.kind.type === 'vector' ? only.kind.source : undefined;
   let box: Bounds | null = null;
   for (const o of chosen) box = unionBounds(box, worldBounds(o));
   const sharedLayer = chosen.length > 0 && chosen.every((o) => o.layer_id === chosen[0].layer_id) ? chosen[0].layer_id : undefined;
@@ -58,6 +63,17 @@ export function PropertiesPanel() {
             />
           </div>
           <SelectionStats objects={chosen} units={project.settings.units} />
+          {only && editSource && (
+            <div className="field-row wide">
+              <button
+                disabled={only.locked}
+                onClick={() => openEdit(only.id)}
+                title={only.locked ? 'Unlock it to edit it' : 'Change the text or the shape settings (or double-click it)'}
+              >
+                {editSource.type === 'text' ? 'Edit text…' : 'Edit shape…'}
+              </button>
+            </div>
+          )}
           <div className="field-row wide">
             <button onClick={() => rotate(-90)} title="Rotate 90° anticlockwise">⟲ 90°</button>
             <button onClick={() => rotate(90)} title="Rotate 90° clockwise">⟳ 90°</button>

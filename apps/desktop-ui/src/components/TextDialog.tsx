@@ -2,12 +2,15 @@ import { useMemo, useState, type ChangeEvent } from 'react';
 import { renderText, MAX_TEXT_CHARS, type TextAlign } from '@/lib/textRender';
 import { shapePathData } from '@/lib/textTrace';
 import { fontChoices, installedFonts, isFontAvailable, pickDefaultFont } from '@/lib/fonts';
+import { applyEdit, makeTextSource, textFromObject, textObjectName } from '@/lib/objectEdit';
 import { TEST_PREFIX } from '@/lib/testGrid';
 import { useProjectStore } from '@/state/projectStore';
 import type { LayerKind, WorkspaceObject } from '@/types/domain';
 
 interface Props {
   onClose: () => void;
+  /** Edit this text object instead of adding a new one. */
+  editId?: string;
 }
 
 type Mode = 'fill' | 'score' | 'cut';
@@ -20,18 +23,24 @@ const MODE_HELP: Record<Mode, string> = {
 };
 
 /** Adds text to the project as ordinary vector outlines. */
-export function TextDialog({ onClose }: Props) {
+export function TextDialog({ onClose, editId }: Props) {
   const project = useProjectStore((s) => s.project);
   const addObject = useProjectStore((s) => s.addObject);
-
-  const [text, setText] = useState('Hello');
-  const [fontFamily, setFontFamily] = useState(() => pickDefaultFont(installedFonts()));
-  const [bold, setBold] = useState(false);
-  const [italic, setItalic] = useState(false);
-  const [capHeight, setCapHeight] = useState('10');
-  const [align, setAlign] = useState<TextAlign>('left');
-  const [lineSpacing, setLineSpacing] = useState('1.2');
-  const [mode, setMode] = useState<Mode>('fill');
+  const mutate = useProjectStore((s) => s.mutate);
+  // When editing, start from what the text was made from (with any resizing on the canvas applied).
+  const [initial] = useState(() => {
+    const current = editId ? useProjectStore.getState().project : null;
+    const existing = current?.objects.find((o) => o.id === editId);
+    return current && existing ? textFromObject(existing, current.layers) : null;
+  });
+  const [text, setText] = useState(initial?.text ?? 'Hello');
+  const [fontFamily, setFontFamily] = useState(() => initial?.fontFamily ?? pickDefaultFont(installedFonts()));
+  const [bold, setBold] = useState(initial?.bold ?? false);
+  const [italic, setItalic] = useState(initial?.italic ?? false);
+  const [capHeight, setCapHeight] = useState(initial?.capHeight ?? '10');
+  const [align, setAlign] = useState<TextAlign>(initial?.align ?? 'left');
+  const [lineSpacing, setLineSpacing] = useState(initial?.lineSpacing ?? '1.2');
+  const [mode, setMode] = useState<Mode>(initial?.mode ?? 'fill');
 
   const built = useMemo(() => {
     try {
@@ -61,11 +70,11 @@ export function TextDialog({ onClose }: Props) {
 
   const add = () => {
     if (!shape) return;
-    const firstLine = text.trim().split(/\r?\n/)[0] ?? '';
+    const source = makeTextSource({ text, fontFamily, bold, italic, capHeight, align, lineSpacing });
     const object: WorkspaceObject = {
       id: crypto.randomUUID(),
-      name: `Text: ${firstLine.length > 24 ? firstLine.slice(0, 24) + '\u2026' : firstLine}`,
-      kind: { type: 'vector', paths: shape.paths },
+      name: textObjectName(text),
+      kind: { type: 'vector', paths: shape.paths, source },
       // centred on the bed; drag it or use the Properties panel to move it
       transform: { a: 1, b: 0, c: 0, d: 1, e: bedW / 2 - shape.widthMm / 2, f: bedH / 2 - shape.heightMm / 2 },
       layer_id: layer?.id ?? null,
@@ -77,12 +86,26 @@ export function TextDialog({ onClose }: Props) {
     onClose();
   };
 
+  // Replaces the outlines of the text being edited. Position and rotation are kept; any resizing
+  // done with the handles is folded into the letter height, so the numbers in this box stay true.
+  const saveEdit = () => {
+    if (!shape || !editId) return;
+    const source = makeTextSource({ text, fontFamily, bold, italic, capHeight, align, lineSpacing });
+    const layerId = layer && initial && mode !== initial.mode ? layer.id : undefined;
+    mutate((p) => {
+      const at = p.objects.findIndex((o) => o.id === editId);
+      const current = p.objects[at];
+      if (current) p.objects[at] = applyEdit(current, source, shape.paths, layerId);
+    });
+    onClose();
+  };
+
   const field = { background: 'var(--panel)', color: 'inherit', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 6px' };
 
   return (
     <div className="modal-backdrop">
       <div className="modal" role="dialog" aria-modal="true" aria-label="Add text" style={{ width: 460, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h2>Add text</h2>
+        <h2>{editId ? 'Edit text' : 'Add text'}</h2>
 
         <textarea
           value={text}
@@ -145,7 +168,7 @@ export function TextDialog({ onClose }: Props) {
               <path d={shapePathData(shape.paths)} fill="#8fe0a6" fillRule="evenodd" />
             </svg>
             <p className="hint">
-              {shape.widthMm} x {shape.heightMm} mm, {shape.paths.length} outlines. It is placed in the middle of the bed. If the
+              {shape.widthMm} x {shape.heightMm} mm, {shape.paths.length} outlines. {editId ? 'It keeps its position on the bed.' : 'It is placed in the middle of the bed.'} If the
               preview is not the font you chose, that font is not installed.
             </p>
             {tooBig && <p className="banner danger">The text is larger than the {bedW} x {bedH} mm bed.</p>}
@@ -155,8 +178,8 @@ export function TextDialog({ onClose }: Props) {
         <div className="modal-actions">
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={shape === null} onClick={add}>
-            Add to project
+          <button className="primary" disabled={shape === null} onClick={editId ? saveEdit : add}>
+            {editId ? 'Save changes' : 'Add to project'}
           </button>
         </div>
       </div>

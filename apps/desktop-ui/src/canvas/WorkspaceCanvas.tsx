@@ -9,6 +9,7 @@ import { PX_PER_MM } from '@/lib/constants';
 import { SNAP_PX, freePoint, snapAt, type MeasureItem } from '@/lib/measure';
 import { api } from '@/lib/tauri';
 import { compose, decompose, fitView, imageSizeMm, objectsInBox, originInfo } from '@/lib/transform';
+import { useEditStore } from '@/state/editStore';
 import { useJobStore } from '@/state/jobStore';
 import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -146,6 +147,7 @@ export function WorkspaceCanvas() {
   const showPreview = useJobStore((s) => s.showPreview);
   const replay = useJobStore((s) => s.replay);
   const measuring = useMeasureStore((s) => s.tool === 'measure');
+  const openEdit = useEditStore((s) => s.open);
   const revision = useProjectStore((s) => s.revision);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -396,6 +398,10 @@ export function WorkspaceCanvas() {
                     }}
                     onDragEnd={scheduleCommit}
                     onTransformEnd={scheduleCommit}
+                    onDblClick={() => {
+                      // Double-click text or a shape to edit what it was made from.
+                      if (!measuring && !o.locked && o.kind.type === 'vector' && o.kind.source) openEdit(o.id);
+                    }}
                   >
                     {o.kind.type === 'vector' ? (
                       <VectorShape paths={o.kind.paths} color={layerColor(o)} />
@@ -452,7 +458,7 @@ export function WorkspaceCanvas() {
       <MeasureReadout />
       <div className="canvas-hint">
         Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift: add to
-        selection &middot; Arrows: nudge (Shift = 10 mm)
+        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it
       </div>
     </div>
   );

@@ -68,9 +68,44 @@ export interface ImageObjectData {
   dpi: number;
 }
 
+export type TextAlignment = 'left' | 'center' | 'right';
+
+/** What a text object was made from, so it can be edited again. */
+export interface TextSource {
+  type: 'text';
+  text: string;
+  font_family: string;
+  bold: boolean;
+  italic: boolean;
+  /** Letter height in mm. */
+  cap_height_mm: number;
+  align: TextAlignment;
+  line_spacing: number;
+}
+
+export type ShapeKind = 'rectangle' | 'ellipse' | 'polygon' | 'star';
+
+/** What a shape object was made from, so it can be edited again. */
+export interface ShapeSource {
+  type: 'shape';
+  shape: ShapeKind;
+  width_mm: number;
+  height_mm: number;
+  /** Rectangles only. */
+  corner_radius_mm: number;
+  /** Polygons: the number of sides. Stars: the number of points. */
+  sides: number;
+  /** Stars only: the inner radius over the outer, 0.1 to 0.95. */
+  inner_ratio: number;
+}
+
+export type ObjectSource = TextSource | ShapeSource;
+
 export interface VectorObjectData {
   type: 'vector';
   paths: Path2D[];
+  /** Set for text and shapes made in MakerLaser: what they were made from. Absent for imported artwork and for older files. */
+  source?: ObjectSource;
 }
 
 export type ObjectKind = ImageObjectData | VectorObjectData;
