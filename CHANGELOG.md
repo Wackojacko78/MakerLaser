@@ -20,6 +20,12 @@
 - Console command box: send `$$`, `$32=1` and other typed commands to the controller and see the
   reply. No real-time characters, no laser-on, no `$RST`, and only when no job is running.
   See docs/console.md.
+- Shape objects: rectangle (with rounded corners), ellipse or circle, polygon and star, from
+  Toolbar > Shape. See docs/shapes-and-text.md.
+- Text and shapes stay editable: double-click one, or press Edit text / Edit shape in the
+  Properties panel, to change what it was made from. Position and rotation are kept.
+- Shapes and text are drawn straight on the canvas and edited in place, with no pop-up boxes: pick a
+  tool in the Tools panel, drag or click, type the sizes and Tab between the boxes.
 
 ### Changed
 - Frontend toolchain upgraded to Vite 7 and Vitest 4.
