@@ -4,6 +4,6 @@ pub mod adjust;
 pub mod dither;
 pub mod preview;
 
-pub use adjust::Adjustments;
+pub use adjust::{sharpen, Adjustments};
 pub use dither::{dither, DitherAlgorithm};
 pub use preview::{encode_png, load_grayscale, resample, resize_grayscale, Resampled};

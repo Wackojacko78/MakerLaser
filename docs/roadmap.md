@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 10 October 2026. What is built, in detail, is in `CHANGELOG.md` ("Unreleased"); what
+Last updated: 11 October 2026. What is built, in detail, is in `CHANGELOG.md` ("Unreleased"); what
 has been tried on a laser is in `VERIFICATION.md`.
 
 ## Done (in `main`)
@@ -15,6 +15,9 @@ Since 0.1.0:
 * **Import:** SVG `<use>` and `<symbol>`, and DXF `INSERT` blocks and arrays (docs/import.md).
 * **CAM:** Overscan for fill and image layers, a fill outline pass, ramped power on score lines
   (docs/overscan.md, docs/fill-and-ramp.md); material test grid; auto-arrange; run order control.
+* **Presets:** material presets remember overscan, outline and ramp (docs/config-formats.md).
+* **Layers and images:** layer colour, lock and drag to reorder; Threshold and Sharpen on Image layers
+  (docs/user-guide.md).
 * **Preview:** faint laser-off travel and a Travel switch (docs/preview.md).
 * **Machine:** console command box for `$$` and settings (docs/console.md); connection settings for
   USB serial, WebSocket and Telnet, stored and validated (docs/connection.md).
@@ -40,7 +43,6 @@ Since 0.1.0:
 
 ## Soon
 
-* **Material presets that remember overscan, outline and ramp,** so they follow the material.
 * **Network connections.** WebSocket and Telnet (FluidNC) settings are stored today, but only USB
   serial connects (docs/connection.md).
 * **Import what is still skipped:** SVG `text`, `image` and `clipPath`; DXF `TEXT`, `HATCH` and
@@ -63,6 +65,26 @@ Since 0.1.0:
 * Camera alignment.
 * **Ruida** controller driver and **galvo** support (new `Controller` implementations).
 * Plugin/extension API; cloud material library.
+
+## Build order for new features
+
+Decided 11 October 2026. Each step is its own update, checked before the next.
+
+1. **Hardware bring-up and 0.2.0** (see Next).
+2. **Layers and image panel**, finished: lock, colour and drag order are in; a choice of grayscale
+   conversion is not (it needs a change to how images are loaded).
+3. **Boolean, offset and arrays in the interface.** The 0.1.0 changelog lists booleans and offsetting
+   in the geometry engine; the interface does not offer them yet. Arrays are new.
+4. **Bitmap trace** to editable vector paths.
+5. **Fillets and chamfers** on corners.
+6. **Node editing.** Needs paths that can hold curves (they are straight-segment lists today), which
+   touches import, CAM, booleans and offset, so it is planned as its own project.
+7. **Cut tabs and bridges.**
+8. **Library and templates, then camera.**
+9. **Rotary**, only once there is hardware to check it on.
+
+Already in place and only needing tuning: the preview with replay and time estimate, ordering of cuts
+(holes first, least travel), and air assist (M8 and M9 are sent per layer when the machine has it).
 
 ## Known deliberate limits
 

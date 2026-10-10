@@ -99,6 +99,21 @@ pub struct RasterOperation {
     /// 0.1..5.0
     pub gamma: f64,
     pub invert: bool,
+    /// 0..255: the grey level at which a pixel turns to white (not burned) or black (burned).
+    /// 128 is the middle. Absent in older projects, which means 128.
+    #[serde(default = "default_threshold")]
+    pub threshold: u8,
+    /// 0..100: how much the picture is sharpened before it is dithered. 0 = off. Absent in older
+    /// projects, which means 0.
+    #[serde(default)]
+    pub sharpen: f64,
+}
+
+/// Largest sharpening a layer may ask for.
+pub const MAX_SHARPEN: f64 = 100.0;
+
+fn default_threshold() -> u8 {
+    128
 }
 
 impl Default for RasterOperation {
@@ -112,6 +127,8 @@ impl Default for RasterOperation {
             contrast: 0.0,
             gamma: 1.0,
             invert: false,
+            threshold: 128,
+            sharpen: 0.0,
         }
     }
 }
@@ -201,6 +218,30 @@ mod tests {
         let json = serde_json::to_string(&op).unwrap();
         assert!(json.contains("\"kind\":\"fill\""));
         let back: LaserOperation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, op);
+    }
+
+    #[test]
+    fn the_new_raster_settings_default_when_an_old_project_has_none() {
+        let json = r#"{"dpi":254,"dither":"floyd_steinberg","direction":"horizontal",
+            "bidirectional":true,"brightness":0.0,"contrast":0.0,"gamma":1.0,"invert":false}"#;
+        let old: RasterOperation = serde_json::from_str(json).unwrap();
+        assert_eq!(old.threshold, 128);
+        assert_eq!(old.sharpen, 0.0);
+        assert_eq!(old, RasterOperation::default());
+    }
+
+    #[test]
+    fn the_new_raster_settings_survive_a_round_trip() {
+        let op = RasterOperation {
+            threshold: 90,
+            sharpen: 35.5,
+            ..RasterOperation::default()
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains("\"threshold\":90"), "{json}");
+        assert!(json.contains("\"sharpen\":35.5"), "{json}");
+        let back: RasterOperation = serde_json::from_str(&json).unwrap();
         assert_eq!(back, op);
     }
 

@@ -31,6 +31,9 @@
   (Score). Applying a preset sets them, the Layers panel shows them next to "Preset in use", and they
   are saved in material library files. Older presets and files are unchanged and leave those settings
   alone. See docs/config-formats.md.
+- Image layers: a Threshold (the grey level where a pixel turns black or white) and a Sharpen setting,
+  both applied before dithering, in the live preview and in the engraving. Old projects load with 128
+  and off. See docs/user-guide.md.
 - Material test grid (speed x power), auto-arrange, and run order control (engrave, score, then cut,
   or your own order).
 
@@ -46,6 +49,8 @@
 - Toolpath preview: laser-off moves are drawn faintly, and a Travel tick box hides them. See
   docs/preview.md.
 - Resizable console and right-hand panel; an "unsaved changes" prompt when closing.
+- Layers panel: a colour box, a Lock artwork tick box (locks every object on the layer), and a handle to
+  drag a layer to a new place in the list. See docs/user-guide.md.
 
 **Documentation and tooling**
 - A user guide and a documentation index (docs/README.md); VERIFICATION.md now records what has been

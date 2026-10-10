@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::operations::RasterOperation;
+use crate::operations::{RasterOperation, MAX_SHARPEN};
 
 /// Largest overscan a layer may ask for, in mm.
 pub const MAX_OVERSCAN_MM: f64 = 25.0;
@@ -169,6 +169,12 @@ impl Layer {
                 MAX_RAMP_MM
             ));
         }
+        if self.kind == LayerKind::Image && !(0.0..=MAX_SHARPEN).contains(&self.raster.sharpen) {
+            problems.push(format!(
+                "Layer '{n}': sharpen must be between 0 and {:.0}",
+                MAX_SHARPEN
+            ));
+        }
         problems
     }
 }
@@ -235,6 +241,23 @@ mod tests {
             l.overscan_mm = bad;
             assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
         }
+    }
+
+    #[test]
+    fn the_sharpen_range_is_checked_on_image_layers() {
+        let mut l = Layer::new("Image", LayerKind::Image, 3);
+        l.raster.sharpen = 40.0;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        l.raster.sharpen = MAX_SHARPEN;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        for bad in [-1.0, MAX_SHARPEN + 1.0, f64::NAN, f64::INFINITY] {
+            l.raster.sharpen = bad;
+            assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
+        }
+        // Layers that do not engrave pictures ignore it.
+        let mut cut = Layer::new("Cut", LayerKind::Cut, 0);
+        cut.raster.sharpen = 500.0;
+        assert!(cut.validate(100.0, 10_000.0).is_empty());
     }
 
     #[test]

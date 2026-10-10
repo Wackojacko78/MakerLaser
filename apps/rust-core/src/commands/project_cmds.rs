@@ -152,7 +152,8 @@ pub fn raster_preview(
             makerlaser_raster::DitherAlgorithm::Atkinson
         }
     };
-    let dithered = makerlaser_raster::dither(&adjusted, algorithm, 128);
+    let adjusted = makerlaser_raster::sharpen(&adjusted, params.sharpen);
+    let dithered = makerlaser_raster::dither(&adjusted, algorithm, params.threshold);
     let png = makerlaser_raster::encode_png(&dithered).map_err(|e| e.to_string())?;
     Ok(Some(data_url(&png)))
 }

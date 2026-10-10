@@ -956,7 +956,9 @@ fn raster_runs(
         invert: params.invert,
     }
     .apply(&resampled.image);
-    let dithered = makerlaser_raster::dither(&adjusted, to_raster_dither(params.dither), 128);
+    let adjusted = makerlaser_raster::sharpen(&adjusted, params.sharpen);
+    let dithered =
+        makerlaser_raster::dither(&adjusted, to_raster_dither(params.dither), params.threshold);
 
     let horizontal = params.direction == ScanDirection::Horizontal;
     let (n_primary, n_secondary) = if horizontal {
@@ -1327,6 +1329,22 @@ mod tests {
         (p, bytes)
     }
 
+    /// Where each burned run of an image ends (x, to a tenth of a mm), with the dither off.
+    fn burn_ends(rows: [[u8; 4]; 2], threshold: u8, sharpen: f64) -> Vec<f64> {
+        let (mut p, bytes) = raster_project(rows, false);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap();
+        layer.raster.threshold = threshold;
+        layer.raster.sharpen = sharpen;
+        engrave(&p, &bytes)
+            .iter()
+            .map(|s| (s.to.x * 10.0).round() / 10.0)
+            .collect()
+    }
+
     fn engrave(p: &ProjectFile, bytes: &HashMap<Uuid, Vec<u8>>) -> Vec<ToolpathSegment> {
         let plan = plan_operations(p);
         generate_toolpath(p, &plan.operations, bytes)
@@ -1388,6 +1406,25 @@ mod tests {
             "burn moved to the right edge: {:?}",
             segs[0]
         );
+    }
+
+    #[test]
+    fn the_threshold_decides_which_grey_pixels_burn() {
+        // Row 0 is 0, 60, 130, 255. With no dither a pixel burns when it is darker than the threshold.
+        let rows = [[0, 60, 130, 255], [255; 4]];
+        assert_eq!(burn_ends(rows, 128, 0.0), vec![0.2]);
+        assert_eq!(burn_ends(rows, 50, 0.0), vec![0.1]);
+        assert_eq!(burn_ends(rows, 200, 0.0), vec![0.3]);
+        assert!(burn_ends(rows, 0, 0.0).is_empty());
+    }
+
+    #[test]
+    fn sharpening_is_applied_before_the_threshold() {
+        // The 125 pixel is lighter than the threshold (120) but darker than what is around it, so
+        // sharpening pushes it below the threshold and it burns.
+        let rows = [[100, 125, 200, 200]; 2];
+        assert_eq!(burn_ends(rows, 120, 0.0), vec![0.1, 0.1]);
+        assert_eq!(burn_ends(rows, 120, 100.0), vec![0.2, 0.2]);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
+import { canMoveLayerTo, layerLockState, moveLayerTo, normalizeColor, setLayerLocked } from '@/lib/layerTools';
 import {
   adoptAutomaticOrder,
   canMoveLayer,
@@ -62,6 +63,11 @@ function LayerCard({
   custom,
   canMoveUp,
   canMoveDown,
+  dragging,
+  dropTarget,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
 }: {
   layer: Layer;
   /** 1 = runs first; 0 = this layer will not run (disabled or empty). */
@@ -69,6 +75,13 @@ function LayerCard({
   custom: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** This card is being dragged. */
+  dragging: boolean;
+  /** The dragged layer would land here if it were let go now. */
+  dropTarget: boolean;
+  onDragStart: (id: string) => void;
+  onDragMove: (x: number, y: number) => void;
+  onDragEnd: (drop: boolean) => void;
 }) {
   const project = useProjectStore((s) => s.project);
   const mutate = useProjectStore((s) => s.mutate);
@@ -94,13 +107,25 @@ function LayerCard({
   // The preset whose settings this layer has right now. It changes the moment a value is edited.
   const activePreset = findMatchingPreset(layer, presets, airSupported);
   const firstImage = objects.find((o) => o.kind.type === 'image');
+  const lockState = layerLockState(project.objects, layer.id);
   const assign = () =>
     mutate((p) => {
       for (const o of p.objects) if (selected.includes(o.id)) o.layer_id = layer.id;
     });
 
   return (
-    <details className="layer" open={layer.enabled}>
+    <details
+      className="layer"
+      open={layer.enabled}
+      data-layer-id={layer.id}
+      style={
+        dragging
+          ? { opacity: 0.6 }
+          : dropTarget
+            ? { outline: '2px solid var(--accent)', outlineOffset: '-2px' }
+            : undefined
+      }
+    >
       <summary>
         <input
           type="checkbox"
@@ -109,6 +134,24 @@ function LayerCard({
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => patch('enabled', (l) => (l.enabled = e.target.checked))}
         />
+        <button
+          className="mini"
+          title="Drag up or down to change this layer's place in the list"
+          style={{ cursor: 'grab', touchAction: 'none' }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            onDragStart(layer.id);
+          }}
+          onPointerMove={(e) => {
+            if (dragging) onDragMove(e.clientX, e.clientY);
+          }}
+          onPointerUp={() => onDragEnd(true)}
+          onPointerCancel={() => onDragEnd(false)}
+          onClick={(e) => e.preventDefault()}
+        >
+          &#8801;
+        </button>
         <i style={{ background: layer.color }} />
         <b>{layer.name}</b>
         {runPosition > 0 && (
@@ -169,6 +212,33 @@ function LayerCard({
         <label>Air assist</label>
         <input type="checkbox" checked={layer.air_assist} disabled={!project.machine.air_assist_supported} onChange={(e) => patch('air', (l) => (l.air_assist = e.target.checked))} />
         <span className="unit">{project.machine.air_assist_supported ? '' : 'not on this machine'}</span>
+        <label>Colour</label>
+        <input
+          type="color"
+          value={normalizeColor(layer.color) ?? '#FFFFFF'}
+          title="The colour of this layer in the list and in the Objects panel"
+          onChange={(e) => {
+            const colour = normalizeColor(e.target.value);
+            if (colour) patch('color', (l) => (l.color = colour));
+          }}
+        />
+        <span className="unit">{layer.color}</span>
+        <label title="Ticks Locked for every piece of artwork that is on this layer now (the same Locked box each object has in Properties). Artwork added to the layer later is not locked.">Lock artwork</label>
+        <input
+          type="checkbox"
+          checked={lockState === 'all'}
+          disabled={lockState === 'empty'}
+          ref={(el) => {
+            if (el) el.indeterminate = lockState === 'some';
+          }}
+          onChange={(e) => {
+            const lock = e.target.checked;
+            mutate((p) => {
+              setLayerLocked(p.objects, layer.id, lock);
+            });
+          }}
+        />
+        <span className="unit">{lockState === 'empty' ? 'no artwork on this layer' : lockState === 'some' ? 'some is locked' : ''}</span>
 
         {layer.kind === 'cut' && (
           <>
@@ -239,6 +309,12 @@ function LayerCard({
             <label>Gamma</label>
             <NumberField value={layer.raster.gamma} min={0.1} max={5} onCommit={(v) => patchRaster('gamma', v)} />
             <span className="unit" />
+            <label title="The grey level where a pixel turns white (not burned) or black (burned). 128 is the middle. With the dither set to Threshold this is a plain cut-off.">Threshold</label>
+            <NumberField value={layer.raster.threshold ?? 128} min={0} max={255} onCommit={(v) => patchRaster('threshold', Math.round(v))} />
+            <span className="unit">0 to 255</span>
+            <label title="Brings out the edges after the other adjustments. The small preview is made at a lower resolution than the real engraving, so judge sharpening on a scrap test.">Sharpen</label>
+            <NumberField value={layer.raster.sharpen ?? 0} min={0} max={100} onCommit={(v) => patchRaster('sharpen', v)} />
+            <span className="unit">% (0 = off)</span>
             <label>Invert</label>
             <input type="checkbox" checked={layer.raster.invert} onChange={(e) => patchRaster('invert', e.target.checked)} />
             <span className="unit" />
@@ -312,9 +388,35 @@ function LayerCard({
 export function LayersPanel() {
   const project = useProjectStore((s) => s.project);
   const mutate = useProjectStore((s) => s.mutate);
+  const notify = useNoticeStore((s) => s.show);
+  // Dragging a layer by its handle: which layer, and which layer it is over right now.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   if (!project) return null;
 
   const custom = isCustomOrder(project);
+  const startDrag = (id: string) => {
+    setDragId(id);
+    setOverId(null);
+  };
+  const moveDrag = (x: number, y: number) => {
+    const card = document.elementFromPoint(x, y)?.closest('[data-layer-id]');
+    setOverId(card instanceof HTMLElement ? (card.dataset.layerId ?? null) : null);
+  };
+  const endDrag = (drop: boolean) => {
+    const from = dragId;
+    const to = overId;
+    setDragId(null);
+    setOverId(null);
+    if (!drop || !from || !to || from === to) return;
+    if (!canMoveLayerTo(project.layers, from, to, !custom)) {
+      notify('info', 'In the automatic order only layers of the same type can swap places. Choose "my own" order to put a layer anywhere.');
+      return;
+    }
+    mutate((p) => {
+      moveLayerTo(p.layers, from, to, !custom);
+    });
+  };
   const runOrder = computeRunOrder(project);
   const listed = orderedLayers(project.layers);
   const warning = runOrderWarning(project);
@@ -353,6 +455,11 @@ export function LayersPanel() {
           custom={custom}
           canMoveUp={canMoveLayer(project.layers, l.id, -1, !custom)}
           canMoveDown={canMoveLayer(project.layers, l.id, 1, !custom)}
+          dragging={dragId === l.id}
+          dropTarget={dragId !== null && overId === l.id && canMoveLayerTo(project.layers, dragId, l.id, !custom)}
+          onDragStart={startDrag}
+          onDragMove={moveDrag}
+          onDragEnd={endDrag}
         />
       ))}
     </section>

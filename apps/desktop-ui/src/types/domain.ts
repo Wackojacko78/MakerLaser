@@ -36,6 +36,10 @@ export interface RasterOperation {
   contrast: number;
   gamma: number;
   invert: boolean;
+  /** Grey level (0 to 255) at which a pixel turns white or black. Absent in older files, which means 128. */
+  threshold?: number;
+  /** Sharpening (0 to 100). Absent in older files, which means 0. */
+  sharpen?: number;
 }
 
 export interface Layer {

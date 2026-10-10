@@ -195,3 +195,40 @@ Done on branch `material-presets` (merge to main once CI is green):
   them. Not yet tried on a real laser.
 
 Next: whatever is chosen from the roadmap.
+
+## Update 2026-10-11 (later): layers and image panel. This replaces "What is next" above.
+
+Done on branch `layers-image` (merge to main once CI is green and it has been tried in the app):
+
+- **Layers panel:** a Colour box per layer, a Lock artwork tick box (locks every object on the layer at
+  that moment; it sets each object's own Locked flag, so no new saved field), and a drag handle that
+  moves a layer in the list. Dragging uses pointer events, not HTML5 drag and drop, because Tauri's file
+  drop handling can stop HTML5 drag and drop working on Windows. In the automatic order only layers of the
+  same type swap places; the arrows still work. Logic is in `apps/desktop-ui/src/lib/layerTools.ts`.
+- **Image layers:** `threshold` (0 to 255, default 128, u8) and `sharpen` (0 to 100, default 0, f64) on
+  `RasterOperation`, with `#[serde(default)]`, so old projects load unchanged. `makerlaser_raster::sharpen`
+  (3 x 3 unsharp mask, up to 3 times the detail added back) runs after Adjustments and before the dither,
+  in both `raster_runs` (toolpath.rs) and `raster_preview` (project_cmds.rs). The preview is made at a
+  smaller size than the engraving, so sharpening looks different there from the real job.
+- Not done: a choice of grayscale conversion (needs a change to `load_grayscale`, which was not in the
+  bundle), layer show/hide separate from Enabled (an object that is not visible does not run, so they
+  would mean the same thing), presets that remember threshold and sharpen.
+- **Not compiled and not run.** The Rust (including its new tests) has never been through `cargo`, and the
+  drag handle has never been tried with a mouse. The first compile is on the owner's PC.
+- Checked by grep this session: air assist already writes M8 and M9 (packages/project/src/gcode.rs); the
+  interface has no boolean or offset tool (the engine is in the geometry crate).
+
+**Build order decided 11 October 2026** (also in docs/roadmap.md): 1 hardware bring-up and 0.2.0 (needs
+the laser); 2 layers and image panel (this update); 3 boolean, offset and arrays in the interface;
+4 bitmap trace; 5 fillets and chamfers; 6 node editing (needs a path model with curves, plan it first);
+7 cut tabs and bridges; 8 library, templates, camera; 9 rotary (only with hardware).
+
+**Next task: step 3.** Before writing it the assistant needs to see how the geometry crate exposes
+booleans and offsets. To make the bundle, run from the repo root (it finds the files itself):
+
+    git grep -l -i -E "clipper|offset|difference|union|kerf_compensate" -- '*.rs'
+
+and bundle those files plus `apps/desktop-ui/src/lib/arrange.ts`, `apps/desktop-ui/src/lib/transform.ts`,
+`apps/desktop-ui/src/components/Toolbar.tsx`, `apps/desktop-ui/src/components/ToolsPanel.tsx`,
+`apps/desktop-ui/src/state/projectStore.ts` and `apps/rust-core/src/main.rs` with the `Bundle` function
+shown earlier in this file.

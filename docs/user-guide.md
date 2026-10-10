@@ -53,9 +53,22 @@ Every object belongs to one layer, and the layer says what the laser does with i
 | **Cut** | Follows the outline, through the material | **Kerf** (width of the cut, to compensate for) |
 | **Score** | Follows the outline lightly (fold lines, marking) | **Ramp** (power rises and falls at the ends of each line, [fill-and-ramp.md](fill-and-ramp.md)) |
 | **Fill** | Fills closed shapes with parallel lines | **Spacing**, **Angle**, **Cross-hatch**, **Overscan** ([overscan.md](overscan.md)), **Outline** ([fill-and-ramp.md](fill-and-ramp.md)) |
-| **Image** | Engraves pictures as dots | **Resolution**, **Dither**, **Scan** direction, **Bidirectional**, **Overscan**, **Brightness, Contrast, Gamma, Invert** |
+| **Image** | Engraves pictures as dots | **Resolution**, **Dither**, **Scan** direction, **Bidirectional**, **Overscan**, **Brightness, Contrast, Gamma, Sharpen, Threshold, Invert** |
 
 Every layer also has **Speed**, **Power**, **Passes** (the whole job repeats) and **Air assist**.
+**Colour, lock and order.** Each layer has a **Colour** box (the colour of its dot in the layer list
+and the Objects panel) and a **Lock artwork** tick box. Lock ticks the **Locked** box (in Properties)
+of every object that is on the layer now; objects you add to the layer later are not locked until you
+tick it again. Drag the **≡** handle at the top of a layer to move it in the list: in your
+own order a layer can go anywhere, and in the automatic order only layers of the same type swap
+places. The arrows still work.
+
+**Image layers.** **Threshold** (0 to 255, 128 is the middle) is the grey level where a pixel turns
+black (burned) or white; with the dither set to Threshold it is a plain cut-off. **Sharpen** (0 to
+100, 0 is off) brings out edges after brightness, contrast and gamma. Neither changes your picture
+file. The small preview in the Layers panel is made at a lower resolution than the real engraving, so
+judge sharpening on a scrap test.
+
 Select objects and press **Assign** on a layer to move them to it. Each layer has a list of
 **material presets** that fill in speed, power and passes. They are conservative starting points,
 not tuned values: **test on scrap**. The **Material library** panel creates, edits, imports and
