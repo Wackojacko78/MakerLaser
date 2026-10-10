@@ -48,7 +48,7 @@ The ramp is eight equal steps, each burned at one power:
 
 - **GRBL laser mode (`$32=1`).** The power changes in steps along every line. In laser mode GRBL changes
   power without stopping; with laser mode off the head pauses at each step and burns dark spots. MakerLaser
-  warns in the pre-flight check whenever a Score layer has a ramp. Type `$$` in the console to see `$32`.
+  warns about it in the safety warnings when you generate, whenever a Score layer has a ramp. Type `$$` in the console to see `$32`.
 - Quite a lot more G-code: about 16 extra power changes for every line or loop.
 
 ### How much it will help

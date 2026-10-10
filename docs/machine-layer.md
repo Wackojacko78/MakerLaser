@@ -6,6 +6,7 @@
 connect · disconnect · is_connected · query_status
 jog · home · unlock · set_origin · frame
 run_program(lines, &JobControl, on_event) -> Result<()>
+send_command(line, &JobControl) -> Result<Vec<String>>   // one typed line; the reply lines
 realtime_handle() -> Option<Arc<dyn RealtimeControl>>   // pause / resume / stop
 ```
 
@@ -46,6 +47,22 @@ refused with the state name.
 Opening the port usually resets the board, which prints `Grbl 1.1x [...]`; the driver waits up
 to 4 s for it. Boards that do not reset are probed with a `?` status query instead. No answer
 yields "the machine on COMx did not answer" and the port is released.
+
+### Typed commands
+
+`send_command` sends one line (the console command box, `docs/console.md`) and collects what the
+controller prints before its `ok`: for `$$`, the settings. An `error:` or `ALARM:` answer is an
+error, and STOP ends the wait. Homing (`$H`) waits up to the homing timeout, other `$` commands
+for a short one, and anything else (a move, say) up to 60 seconds. The default implementation says
+typed commands are not available, which is what the simulator answers. The line is checked before
+it gets here (`apps/rust-core/src/console.rs`).
+
+### Framing
+
+`frame` traces the job's rectangle with the laser off. Frames that start from the head's position
+(Start From relative) or that use the laser at low power (docs/framing.md) are short programs built
+in `apps/rust-core/src/placement.rs` and sent through `run_program`, so STOP, errors and the
+real-time channel behave as they do for a job.
 
 ## Testing without hardware
 

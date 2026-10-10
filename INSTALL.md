@@ -32,17 +32,27 @@ Notes:
 
 ## 2. Get the code
 
-Extract the zip into a **short path without spaces**, for example `C:\Dev`, so that this file
-exists: `C:\Dev\MakerLaser\Cargo.toml`. (If Windows creates an extra outer folder, move the inner
-`MakerLaser` folder up so there is no nesting.)
+**From GitHub** (best: it keeps the history and lets you pull updates):
+
+```powershell
+cd C:\Dev
+git clone https://github.com/Wackojacko78/MakerLaser.git
+cd MakerLaser
+```
+
+**From a zip:** extract it into a **short path without spaces**, for example `C:\Dev`, so that this
+file exists: `C:\Dev\MakerLaser\Cargo.toml`. (If Windows creates an extra outer folder, move the
+inner `MakerLaser` folder up so there is no nesting.) Then:
 
 ```powershell
 cd C:\Dev\MakerLaser
 git init -b main
 git add -A
-git commit -m "Initial import of MakerLaser 0.1.0"
-git branch develop
+git commit -m "Initial import of MakerLaser"
 ```
+
+To update later: `git switch main`, `git pull`, then `npm install`, because new dependencies (the
+built-in fonts, for example) arrive with the code.
 
 ## 3. Verify (recommended before anything else)
 
@@ -79,9 +89,13 @@ Smoke test to run once, in this order:
 1. Tick **Simulator**, click **Connect**.
 2. Drag `tests\fixtures\nested.svg` onto the window. It appears on the **Score** layer.
 3. Select it, change its layer to **Cut** in the right-hand panel, drag it, rotate it.
-4. **Generate & Preview**. Red cut lines appear; the inner circle is numbered **1**.
-5. **Frame**, then **Start...**, confirm, watch the progress bar.
-6. **Save** as `test.mlp`, close the app, reopen, **Open** `test.mlp`.
+4. Press **R**, drag a rectangle on the empty canvas, type a width, press **Tab**, type a height,
+   press **Enter**. Press **T**, click, type your name, then double-click it and pick another font
+   from the list.
+5. **Generate & Preview**. Red cut lines appear; the inner circle is numbered **1**.
+6. **Frame**, then **Start...**, confirm, watch the progress bar.
+7. **Save** as `test.mlp`, close the app, reopen, **Open** `test.mlp`. The rectangle and the text
+   should still open for editing when you double-click them.
 
 ## 5. Build installers
 
@@ -114,6 +128,11 @@ To tag a release through GitHub Actions instead: `git tag v0.1.0 && git push ori
 | `cargo clippy` prints warnings | They do not fail the build. Fix them over time; see `CONTRIBUTING.md`. |
 | `cargo fmt --check` fails in CI | Run `cargo fmt --all` locally and commit. |
 | Cannot open the serial port | Close any other program using it (LaserGRBL, LightBurn, a serial monitor). Install the USB driver your board needs (often CH340/CP210x). |
+| `npm run dev` opens only a web page, or the machine buttons do nothing | It was run from `apps\desktop-ui`, which starts only the user interface. Run it from the repo root (`C:\Dev\MakerLaser`): that starts the desktop app with the Rust side. |
+| The built-in fonts are missing, or the `bundledFontsInstalled` tests fail | The font packages are not installed. Run `npm install` from the repo root. |
+| The app looks like an old version | You are on a branch without the newer work, or an old window is still open. Run `git branch --show-current`, close every MakerLaser window, and run `npm run dev` again from the repo root. |
+| Git opens Vim, or output stops at `(END)` | See "Git on Windows" in `CONTRIBUTING.md`. |
+| GitHub says "Invalid workflow file" | A mistake in `.github/workflows/ci.yml`; GitHub names the line. Every step needs a `- name:` or `- uses:` line above its `run:`. |
 
 If a compiler error appears that is not covered here, send the first error in
 `verification.log`; it is almost always a small, local fix.

@@ -2,8 +2,8 @@
 
 **Status: should build and run, but not yet verified on a real Linux desktop.** The code is
 cross-platform (Tauri 2, Rust and a web front end), nothing in it is Windows-only, and the
-helper scripts below were tested on Linux. But nobody has yet built the whole app and run it on
-a Linux desktop with a laser attached, so treat the first run as a test and report what you find.
+helper scripts below were tested on Linux. But the Rust code is built on Ubuntu 24.04 by CI on every push, and nobody has yet run the whole
+app on a Linux desktop with a laser attached, so treat the first run as a test and report what you find.
 
 ## 1. Install the prerequisites
 
@@ -29,7 +29,8 @@ You also need **Node.js 20.19 or newer** (or 22.12+) and **Rust 1.85 or newer** 
 [rustup](https://rustup.rs), then open a new terminal).
 
 On a very minimal system, install at least one font package (for example `fonts-dejavu-core` or
-`fonts-liberation`), or text will not draw.
+`fonts-liberation`): the built-in fonts always draw, but the starting font for new text is chosen
+from the installed ones.
 
 ## 2. Build
 
@@ -99,10 +100,10 @@ needed and I can add a Linux-only default.
 
 ## 5. Differences from Windows
 
-- **Fonts.** Arial, Calibri and Segoe UI are Windows fonts. The Text tool now lists only the
-  fonts installed on the computer it runs on, and starts with a sensible default. On Linux,
-  names like Arial are mapped to metric-compatible Liberation fonts by the system, so they draw.
-  A font name you type that is not installed gets a warning.
+- **Fonts.** The Text tool has 35 built-in fonts (docs/fonts.md) that look the same on every
+  computer, plus the fonts installed on the computer it runs on. Arial, Calibri and Segoe UI are
+  Windows fonts. On Linux, names like Arial are mapped to metric-compatible Liberation fonts by the
+  system, so they draw. A font name that is in a project but not installed shows "(not installed)".
 - **Saved machine presets** live in the app's own storage, which belongs to one build of the
   app. Use **Export** and **Import** in the Machine window to move one between computers.
 - **File dialogs** are the desktop's own (GTK). Drag and drop from the file manager is
@@ -117,6 +118,6 @@ needed and I can add a Linux-only default.
 | `build-linux.sh`: every check, the version comparisons, the build sequence, failure handling | run on Linux with stand-in tools |
 | `scripts/linux-serial-check.sh`: all branches | run on Linux with stand-in devices |
 | Font detection | unit tests, plus the real detection run in Chromium on a Linux machine |
-| **Not yet tested** | a full `cargo` build and run on Linux, WebKitGTK rendering, serial communication with a real laser on Linux, the `.deb` / `.rpm` / `.AppImage` installers |
+| **Not yet tested** | running the app on a Linux desktop (the Rust code does build on Ubuntu 24.04 in CI), WebKitGTK rendering, serial communication with a real laser on Linux, the `.deb` / `.rpm` / `.AppImage` installers |
 
 Please report what happens on your machine, including the output of `bash build-linux.sh --check`.

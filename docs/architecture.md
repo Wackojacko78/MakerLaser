@@ -75,6 +75,60 @@ start if it no longer matches.
 5. Controller state check (must be Idle) before jobs, framing and origin changes.
 6. Connection required for every motion; single job at a time.
 7. Soft reset on any streaming failure; STOP always available.
+8. The console command box refuses laser-on commands, `$RST`, real-time characters, more than one
+   line, and anything while a job is running; Pause is refused when no job is running.
+9. Frame with laser on is capped at 5 % power on the Rust side, only runs when the machine is
+   idle, and is switched off again every time the app starts.
+
+## The front end
+
+* **State** lives in Zustand stores in `apps/desktop-ui/src/state`: `projectStore` (the project,
+  the selection, undo history and the revision counter), `viewStore` (pan and zoom), `measureStore`,
+  `editStore` (the drawing tool, and which text or shape editor is open), `jobStore` (progress and
+  the console log), `machineStore`, `noticeStore`, and two small remembered choices:
+  `frameLaserStore` (the laser-on frame power; the on/off switch is never remembered) and
+  `previewStore` (the Travel switch).
+* **Logic** is plain TypeScript in `src/lib`, with no React, Konva or Tauri imports, so Vitest runs
+  it directly: `transform.ts`, `shapes.ts`, `inlineEdit.ts` (the drawing gesture and the size
+  boxes), `objectEdit.ts`, `textSettle.ts` (waits for a font to load before text is drawn),
+  `fonts.ts` and `bundledFonts.ts`, `measure.ts`, `toolShortcuts.ts`, `previewOptions.ts` and more.
+  Components in `src/components` and `src/canvas` stay thin. This is a rule (CONTRIBUTING.md), and it
+  is why most of the front end is covered by tests.
+* **The canvas:** `WorkspaceCanvas.tsx` handles the mouse (select, pan, draw), `CanvasEditor.tsx` is
+  the floating editor next to a text or shape, and `ObjectFields.tsx` holds the boxes that it and
+  the Properties panel share.
+
+## Text and shapes
+
+Text and shapes are ordinary vector outlines as far as the planner is concerned
+(`ObjectKind::Vector`). A `source` next to the outlines (the text and font, or the shape kind and
+sizes) is the recipe the editor rebuilds them from; see `project-format.md`. Editing replaces the
+outlines and the source and keeps the object's place, rotation, layer and stacking (`objectEdit.ts`).
+Text is drawn on an off-screen canvas and traced into outlines in the browser (`textRender.ts`,
+`textTrace.ts`), which is why a built-in font has to be loaded before it is drawn (`fontLoad.ts`,
+`textSettle.ts`).
+
+## Settings that shape the toolpath
+
+Layer settings reach the laser only through `packages/project/src/toolpath.rs`; the UI just stores
+them.
+
+* **Overscan** (Fill and Image): scan lines are grouped, and each group gets a laser-off run-up and
+  run-out, clamped to the bed. They are `Travel` moves flagged `overscan`, which `gcode.rs` sends as
+  `M4 S0` + `G1` instead of `M5` + `G0`, so GRBL's planner is not emptied. The flag also keeps them
+  out of the job's bounds.
+* **Fill outline** (Fill): after the fill lines, every closed path of the object is traced once,
+  holes first.
+* **Ramped power** (Score): `ramp_pieces` splits each path into eight power steps at either end.
+  `gcode.rs` already sends a new `S` value whenever the power changes, so nothing else changes.
+
+## Framing and typed commands
+
+Frame with the laser off on the bed is the controller's own `frame`. With Start From relative to
+the head, or with the laser on, it is a short program built in `apps/rust-core/src/placement.rs` and
+streamed like a job, so STOP and error handling are the same. The laser-on power is capped at 5 % on
+the Rust side whatever the screen sends. Typed commands go through `Controller::send_command` after
+`apps/rust-core/src/console.rs` has checked them.
 
 ## Error handling
 

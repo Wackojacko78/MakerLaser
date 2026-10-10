@@ -1,50 +1,65 @@
 # Roadmap
 
-## Done (in main)
+Last updated: 10 October 2026. What is built, in detail, is in `CHANGELOG.md` ("Unreleased"); what
+has been tried on a laser is in `VERIFICATION.md`.
+
+## Done (in `main`)
 
 Since 0.1.0:
 
-* Measure tool: snapping, point and line measurements, selection size.
-* Start From (absolute, current position, user origin) and Job Origin.
-* Overscan for fill and image layers (laser-off run-up and run-out).
-* Material test grid (speed x power) generator.
-* Text objects.
-* Auto-arrange.
-* Run order control (engrave, score, then cut, or your own order).
-* "Unsaved changes" prompt when closing.
-* Machine connection settings: USB serial, WebSocket, Telnet (FluidNC).
-* Machine and material catalogues, config import and export.
-* Resizable console and right-hand panel.
-* Linux notes (docs/linux.md) and an Ubuntu job in CI.
-* Frame with the laser on at low power (off by default; docs/framing.md).
-* Console command box: read and change controller settings, for example `$$` and `$32=1` (docs/console.md).
-* Shapes and text drawn straight on the canvas (drag or click, type sizes, Tab between boxes) and edited in place (docs/shapes-and-text.md).
-* 35 built-in fonts and a grouped font list (docs/fonts.md).
-* Import of SVG `<use>` and `<symbol>` and DXF `INSERT` blocks and arrays, so repeated parts are no longer lost (docs/import.md).
-* Tool shortcuts (R, E, P, S, T) and a Travel switch for the toolpath preview (docs/preview.md).
+* **Placement:** Start From (absolute, current position, user origin) and Job Origin; Frame also
+  with the laser on at low power (docs/start-from.md, docs/framing.md).
+* **Drawing:** Rectangle, ellipse, polygon, star and text drawn on the canvas, typed sizes with Tab,
+  editable afterwards (double-click), shortcut keys R E P S T (docs/shapes-and-text.md).
+* **Fonts:** 35 built-in fonts and a grouped font list (docs/fonts.md).
+* **Import:** SVG `<use>` and `<symbol>`, and DXF `INSERT` blocks and arrays (docs/import.md).
+* **CAM:** Overscan for fill and image layers, a fill outline pass, ramped power on score lines
+  (docs/overscan.md, docs/fill-and-ramp.md); material test grid; auto-arrange; run order control.
+* **Preview:** faint laser-off travel and a Travel switch (docs/preview.md).
+* **Machine:** console command box for `$$` and settings (docs/console.md); connection settings for
+  USB serial, WebSocket and Telnet, stored and validated (docs/connection.md).
+* **Tools:** Measure tool (docs/measure.md); "unsaved changes" prompt when closing.
+* **Catalogues:** 19 machines and 31 starter material presets; config import and export
+  (docs/catalog.md, docs/config-formats.md).
+* **Interface:** resizable console and right-hand panels.
+* **Project:** Linux notes and an Ubuntu CI job (docs/linux.md); CI on every branch with the
+  Rust format check enforced.
+* **Documentation:** user guide, a docs index, the verification record, and
+  `scripts/check-docs.mjs`.
 
 ## Next
 
-1. Hardware bring-up on the TTS-55 Pro following `SAFETY.md`: verify Start From and overscan on
-   scrap, record what Pause does with the beam, tune the starter material presets.
-2. Verify framing with the laser on (docs/framing.md): is the beam visible on scrap, and does Stop put it out at once.
-3. CI: clippy with `-D warnings`; tighten the CSP.
+1. **Hardware bring-up on the TTS-55 Pro** (`SAFETY.md`, `VERIFICATION.md`). Set the focus, then
+   run each "not yet" test routine on scrap and record the result: overscan (0 against 3 mm),
+   Start From and Job Origin, the fill outline, ramped power, and what Pause does with the beam.
+   Tune the starter material presets as you go.
+2. **A 0.2.0 release.** Move "Unreleased" in `CHANGELOG.md` to a 0.2.0 heading, bump the version in
+   `Cargo.toml`, the `package.json` files and `tauri.conf.json` (`scripts/check-docs.mjs` checks they
+   agree), build the installers (`INSTALL.md`) and tag it.
+3. **CI hardening:** `clippy` with `-D warnings`, and a tighter content-security policy.
 
 ## Soon
 
-Shapes can now be drawn on the canvas (see Done).
-* Ramped power and a perimeter/outline fill mode.
-* Import what is still skipped: SVG `text`, `image` and `clipPath`, and DXF `TEXT`, `HATCH` and `DIMENSION`.
-* Inch display and a units setting wired into the UI (check what is already done).
-* Recent files (check what is already done).
-* Installer signing and an auto-updater.
+* **Material presets that remember overscan, outline and ramp,** so they follow the material.
+* **Network connections.** WebSocket and Telnet (FluidNC) settings are stored today, but only USB
+  serial connects (docs/connection.md).
+* **Import what is still skipped:** SVG `text`, `image` and `clipPath`; DXF `TEXT`, `HATCH` and
+  `DIMENSION`; DXF layers mapped to MakerLaser layers.
+* **A separate colour for overscan in the preview.** The preview cannot tell overscan from other
+  travel today (docs/preview.md); it needs a flag on each preview move.
+* **Units:** inch display and a units setting wired through every panel (check what is already done).
+* **Recent files** (check what is already done).
+* **Installer signing and an auto-updater.** Signing needs a certificate, which costs money.
 
 ## Later
 
-* Per-object and per-layer start/end position modes (user origin, current position, absolute).
-  Lower priority now that the job-level Start From exists.
-* Tabs/bridges for cuts.
+* A LightBurn feature comparison, to rank what to build next for a general audience.
+* Per-object and per-layer start and end positions. Lower priority now that the job-level Start
+  From exists.
+* Tabs and bridges for cuts; job nesting.
 * Image vectorisation (trace); more dithers; per-object raster settings.
+* Single-line fonts (one stroke per letter) for very small text, fast serial numbers and pens. Fill is
+  better for most text, so this waits until someone needs it.
 * Camera alignment.
 * **Ruida** controller driver and **galvo** support (new `Controller` implementations).
 * Plugin/extension API; cloud material library.

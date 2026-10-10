@@ -3,42 +3,61 @@
 ## Unreleased
 
 ### Added
-- Measure tool: snapping, point and line measurements, selection size.
-- Start From (absolute, current position, user origin) and Job Origin.
-- Overscan for fill and image layers: laser-off run-up and run-out so each scan line is burned at
+
+**Drawing and text**
+- Rectangle, ellipse, polygon, star and text tools: drag or click on the canvas, type exact sizes
+  and press Tab between the boxes, with no pop-up dialogs. Text is typed straight onto the canvas.
+  The keys R, E, P, S and T pick the tools. See docs/shapes-and-text.md.
+- Text and shapes stay editable: double-click, press Enter or F2, or use the boxes in the Properties
+  panel. What they were made from is saved with the project.
+- 35 built-in fonts and a grouped font list; more of the fonts installed on the computer are
+  found, and text waits for a font to load before it is drawn. See docs/fonts.md.
+
+**Import**
+- SVG `<use>` and `<symbol>`, and DXF `INSERT` (blocks, scaled, rotated, in arrays and nested), are
+  placed instead of being skipped. Copies are capped so a damaged file cannot fill the computer.
+  See docs/import.md.
+
+**Laser settings and placement**
+- Overscan for fill and image layers: a laser-off run-up and run-out so each scan line is burned at
   full speed. Sent as `M4 S0` + `G1`, never `M5` + `G0`. See docs/overscan.md.
-- Material test grid (speed x power) generator.
-- Text objects.
-- Auto-arrange.
-- Run order control: engrave, score, then cut, or your own layer order.
-- "Unsaved changes" prompt when closing.
-- Machine connection settings: USB serial, WebSocket and Telnet (FluidNC).
-- Machine and material catalogues; config import and export.
-- Resizable console and right-hand panel.
+- A fill outline pass that traces the edge of filled shapes once after the fill, and ramped power on
+  score lines so the ends do not burn darker. Both are off by default. Ramping needs GRBL laser
+  mode (`$32=1`) and warns when you generate. See docs/fill-and-ramp.md.
+- Start From (absolute, current position, user origin) and Job Origin. See docs/start-from.md.
 - Frame with the laser on at low power, so the outline can be seen on the material. Off by default
   and off again every time MakerLaser starts. See docs/framing.md.
-- Console command box: send `$$`, `$32=1` and other typed commands to the controller and see the
-  reply. No real-time characters, no laser-on, no `$RST`, and only when no job is running.
-  See docs/console.md.
-- Shape objects: rectangle (with rounded corners), ellipse or circle, polygon and star, from
-  Toolbar > Shape. See docs/shapes-and-text.md.
-- Text and shapes stay editable: double-click one, or press Edit text / Edit shape in the
-  Properties panel, to change what it was made from. Position and rotation are kept.
-- Shapes and text are drawn straight on the canvas and edited in place, with no pop-up boxes: pick a
-  tool in the Tools panel, drag or click, type the sizes and Tab between the boxes.
-- 35 fonts built in (sans-serif, serif, slab, display, script and monospace) and a grouped font list;
-  more of the fonts installed on the computer are found too. See docs/fonts.md.
-- Fixed: choosing the generic serif or monospace font drew sans-serif.
-- Import: SVG `<use>` and `<symbol>`, and DXF `INSERT` (blocks, scaled, rotated, in arrays and nested),
-  are placed instead of being skipped. Copies are capped so a damaged file cannot fill the computer.
-  See docs/import.md.
-- Tool shortcuts: R, E, P, S and T pick the drawing tools.
-- Toolpath preview: laser-off moves are drawn faintly, and a Travel tick box hides them. See docs/preview.md.
+- Material test grid (speed x power), auto-arrange, and run order control (engrave, score, then cut,
+  or your own order).
+
+**Machine**
+- Console command box: send `$$`, `$32=1` and other typed commands and see the reply. No laser-on,
+  no `$RST`, no real-time characters, and only when no job is running. See docs/console.md.
+- Machine connection settings for USB serial, WebSocket and Telnet (FluidNC). Only USB serial
+  connects so far. See docs/connection.md.
+- Machine and material catalogues; config import and export. See docs/catalog.md.
+
+**Interface**
+- Measure tool with snapping. See docs/measure.md.
+- Toolpath preview: laser-off moves are drawn faintly, and a Travel tick box hides them. See
+  docs/preview.md.
+- Resizable console and right-hand panel; an "unsaved changes" prompt when closing.
+
+**Documentation and tooling**
+- A user guide and a documentation index (docs/README.md); VERIFICATION.md now records what has been
+  tried on a real laser; README, SAFETY, INSTALL, CONTRIBUTING, the architecture, API, project
+  format and roadmap documents brought up to date.
+- `scripts/check-docs.mjs` checks that the documents still match the code (links, file names, the
+  command table, version numbers); `scripts/font-licenses.mjs` lists the licence of each built-in font.
 
 ### Changed
-- Frontend toolchain upgraded to Vite 7 and Vitest 4.
-- CI: actions updated to Node 24 versions, runners pinned to ubuntu-24.04, and CI now runs on
-  pushes to every branch.
+- Front-end toolchain upgraded to Vite 7 and Vitest 4.
+- CI: actions updated to Node 24 versions, runners pinned to ubuntu-24.04, CI runs on pushes to every
+  branch, and the Rust format check is enforced.
+- Pause is refused when no job is running (use STOP to end a frame).
+
+### Fixed
+- Choosing the generic serif or monospace font drew sans-serif.
 
 ## 0.1.0
 

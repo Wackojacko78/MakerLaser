@@ -54,9 +54,11 @@ G1 X50 Y248.5      ; the burn, other direction
 - **Start From / Job Origin relative to the laser head:** MakerLaser cannot check that the
   overscan stays on the bed from where the head is. Leave at least the overscan distance clear
   around the artwork and use Frame first. Pre-flight shows a warning when this applies.
-- **Preview, Frame and job bounds:** overscan moves are Travel-type moves, so the preview should
-  draw them as travel, and they are not part of the job's bounds. Frame and Job Origin still
-  refer to the artwork.
+- **Preview, Frame and job bounds:** overscan moves are Travel-type moves, so the preview draws
+  them faintly with the other travel, and the **Travel** tick box hides them (docs/preview.md). The
+  preview cannot show them in a colour of their own. They are not part of the job's bounds, so
+  Frame and Job Origin still refer to the artwork.
+- **Not yet tried on a laser.** See `VERIFICATION.md`.
 - **Estimated time and distance:** overscan moves count as travel distance.
 - **Soft limits:** if $20 (soft limits) is on and the head is close to the machine edge, GRBL can
   raise an alarm for an overscan move. The bed clamp prevents this in Absolute mode.

@@ -60,8 +60,8 @@ kept their settings. Add those again to make them editable.
 
 ## Saved files
 
-The settings are saved in the project file next to the outlines. Older versions of MakerLaser open
-these files as ordinary artwork and ignore the settings.
+The settings are saved in the project file next to the outlines. Older versions of MakerLaser should open
+these files as ordinary artwork and ignore the settings (this has not been tried).
 
 ## Tips and limits
 

@@ -11,6 +11,9 @@ The Rust models in `packages/common` are mirrored **by hand** in
 Change both together. The Rust tests that serialise the models and the TypeScript tests
 that build them are the safety net.
 
+`node scripts/check-docs.mjs` compares the commands registered in `apps/rust-core/src/main.rs` with
+the table below and reports any that are missing or no longer exist.
+
 ## Commands
 
 | Command | Arguments | Returns | Notes |
@@ -32,9 +35,12 @@ that build them are the safety net.
 | `machine_status` | | `GrblStatus` | Fails fast ("busy") during a job |
 | `machine_jog` | `dx`, `dy`, `feed` | | **Screen** directions in mm; ≤ 1000 mm |
 | `machine_home` / `machine_unlock` / `machine_set_origin` | | | `$H` / `$X` / `G10 L20 P1 X0 Y0` |
-| `machine_frame` | | | Job extent, laser off; refuses empty or out-of-bed |
+| `machine_frame` | `laserPercent` (optional) | | Traces the job extent. The laser is off unless `laserPercent` is given: then it is on at that power, 0.1 to 5 %. Refuses empty or out-of-bed |
 | `machine_start` | | | Verifies safety, fingerprint, connection, single job |
-| `machine_pause` / `machine_resume` / `machine_stop` | | | Real-time channel |
+| `machine_pause` / `machine_resume` / `machine_stop` | | | Real-time channel. Pause is refused when no job is running: use stop |
+| `machine_send` | `line` | `string[]` | One typed command (the console box) and the reply lines. Only when a real machine is connected and no job is running; refuses laser-on, `$RST`, real-time characters and more than 80 characters (`docs/console.md`) |
+| `machine_user_origin` | | `[x, y] \| null` | The stored User origin, in machine coordinates |
+| `machine_clear_user_origin` | | | Forgets the stored User origin |
 | `import_materials` / `export_materials` | `path` (, `library`) | `MaterialLibrary` / – | JSON files |
 
 ## `GenerateResponse`
