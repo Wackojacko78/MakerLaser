@@ -12,6 +12,7 @@
 
 import type { LayerKind, MachineOrigin, MachineProfile, MaterialPreset } from '@/types/domain';
 import { connectionToEntry, parseConnection } from '@/lib/connectionSettings';
+import { MAX_OVERSCAN_MM, MAX_RAMP_MM, presetExtras, usesOutline, usesOverscan, usesRamp } from '@/lib/selectionInfo';
 
 export const MATERIALS_FORMAT = 'makerlaser.materials';
 export const MACHINE_FORMAT = 'makerlaser.machine';
@@ -112,7 +113,23 @@ export function validateMaterialEntry(raw: unknown, index = 0): MaterialCheck {
     bad(`notes must be text of at most ${MAX_NOTES_CHARS} characters, or null`);
   }
 
+  const overscan = raw.overscan_mm ?? null;
+  if (overscan !== null && (!isNum(overscan) || overscan < 0 || overscan > MAX_OVERSCAN_MM)) {
+    bad(`overscan_mm must be a number from 0 to ${MAX_OVERSCAN_MM}, or null`);
+  }
+  const outline = raw.fill_outline ?? null;
+  if (outline !== null && typeof outline !== 'boolean') bad('fill_outline must be true or false, or null');
+  const ramp = raw.ramp_mm ?? null;
+  if (ramp !== null && (!isNum(ramp) || ramp < 0 || ramp > MAX_RAMP_MM)) {
+    bad(`ramp_mm must be a number from 0 to ${MAX_RAMP_MM}, or null`);
+  }
   if (problems.length > 0) return { entry: null, problems };
+  // Only the settings this layer type uses are kept: overscan for Fill and Image, the outline
+  // for Fill, the ramp for Score. Anything else in the file is ignored.
+  const extras: Pick<MaterialEntry, 'overscan_mm' | 'fill_outline' | 'ramp_mm'> = {};
+  if (usesOverscan(kind as LayerKind) && overscan !== null) extras.overscan_mm = overscan as number;
+  if (usesOutline(kind as LayerKind) && outline !== null) extras.fill_outline = outline as boolean;
+  if (usesRamp(kind as LayerKind) && ramp !== null) extras.ramp_mm = ramp as number;
   return {
     entry: {
       name,
@@ -121,6 +138,7 @@ export function validateMaterialEntry(raw: unknown, index = 0): MaterialCheck {
       power_percent: raw.power_percent as number,
       passes: raw.passes as number,
       air_assist: air as boolean,
+      ...extras,
       thickness_mm: thickness as number | null,
       notes: notes as string | null,
     },
@@ -165,11 +183,22 @@ export function serializeMaterialsFile(library: { presets: readonly MaterialEntr
     power_percent: p.power_percent,
     passes: p.passes,
     air_assist: p.air_assist,
+    ...presetExtras(p),
     thickness_mm: p.thickness_mm ?? null,
     notes: p.notes ?? null,
   }));
   return JSON.stringify({ format: MATERIALS_FORMAT, version: FORMAT_VERSION, presets }, null, 2) + '\n';
 }
+
+const sameExtras = (a: MaterialEntry, b: MaterialEntry) => {
+  const x = presetExtras(a);
+  const y = presetExtras(b);
+  return (
+    (x.overscan_mm ?? null) === (y.overscan_mm ?? null) &&
+    (x.fill_outline ?? null) === (y.fill_outline ?? null) &&
+    (x.ramp_mm ?? null) === (y.ramp_mm ?? null)
+  );
+};
 
 const sameSettings = (a: MaterialEntry, b: MaterialEntry) =>
   a.for_layer_kind === b.for_layer_kind &&
@@ -178,7 +207,8 @@ const sameSettings = (a: MaterialEntry, b: MaterialEntry) =>
   a.passes === b.passes &&
   a.air_assist === b.air_assist &&
   (a.thickness_mm ?? null) === (b.thickness_mm ?? null) &&
-  (a.notes ?? null) === (b.notes ?? null);
+  (a.notes ?? null) === (b.notes ?? null) &&
+  sameExtras(a, b);
 
 export interface MergeResult {
   /** New presets to add to the library, with fresh ids. */

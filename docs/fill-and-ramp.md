@@ -72,4 +72,6 @@ on scrap before relying on it.
 - The ramp counts the path as the toolpath has it: a Score line made of many tiny segments (a flattened
   curve) ramps over the right distance, but a path of tiny segments that is shorter than the ramp ramps
   over half its length.
-- Neither setting is stored in material presets yet.
+- A material preset saved from a Fill layer remembers the Outline setting, and one saved from a Score
+  layer remembers the Ramp length. Applying the preset sets them. Older presets do not set them, so
+  applying one leaves them as they were. See docs/config-formats.md.

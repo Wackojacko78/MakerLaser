@@ -2,6 +2,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
 import { mergeMaterials, parseMaterialsFile, serializeMaterialsFile, summarizeMaterialImport } from '@/lib/configFormat';
+import { describePresetExtras } from '@/lib/selectionInfo';
 import { api } from '@/lib/tauri';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -56,7 +57,10 @@ export function MaterialsPanel() {
         <summary>
           <h3 className="inline">Material library ({project.materials.presets.length})</h3>
         </summary>
-        <p className="hint">Presets are starting points. Always test on scrap first.</p>
+        <p className="hint">
+          Presets are starting points. Always test on scrap first. A preset saved from a layer also remembers that layer&apos;s overscan,
+          outline and ramp: hover a preset&apos;s type to see them.
+        </p>
         <ul className="materials">
           {project.materials.presets.map((m) => (
             <li key={m.id}>
@@ -65,7 +69,9 @@ export function MaterialsPanel() {
                 value={m.name}
                 onChange={(e) => patch(m.id, 'name', (p) => (p.name = e.target.value))}
               />
-              <span className="kind">{m.for_layer_kind}</span>
+              <span className="kind" title={describePresetExtras(m).length > 0 ? `Also sets: ${describePresetExtras(m).join(', ')}` : undefined}>
+                {m.for_layer_kind}
+              </span>
               <NumberField value={m.speed_mm_min} min={1} onCommit={(v) => patch(m.id, 'speed', (p) => (p.speed_mm_min = v))} title="Speed (mm/min)" />
               <NumberField value={m.power_percent} min={0.1} max={100} onCommit={(v) => patch(m.id, 'power', (p) => (p.power_percent = v))} title="Power (%)" />
               <NumberField value={m.passes} min={1} max={100} onCommit={(v) => patch(m.id, 'passes', (p) => (p.passes = Math.round(v)))} title="Passes" />

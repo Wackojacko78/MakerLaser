@@ -176,3 +176,22 @@ If the upload is blocked, rename the file to end in `.txt.txt`. The starter cata
 1. Upload this file (and the bundle for the task).
 2. Say what you want done, or "continue from STATUS.md".
 3. Before the first install, `git status --short` should print nothing and `git branch` should show only `main`.
+
+## Update 2026-10-11: material presets remember overscan, outline and ramp
+
+Done on branch `material-presets` (merge to main once CI is green):
+
+- A material preset now stores `overscan_mm` (Fill and Image), `fill_outline` (Fill) and `ramp_mm` (Score).
+  They are optional. A preset that leaves them out does not touch the layer when applied, so every older
+  preset, project and library file behaves as before. Applying a preset that sets them sets them on the
+  layer.
+- "Save as preset" in the Layers panel stores the layer's values (0 and off included).
+- "Preset in use" matches on these too and shows them, e.g. "Preset in use: Ply (overscan 3 mm, outline on)".
+- Library files (`makerlaser.materials`, still version 1) carry the three fields; older apps ignore them.
+- Rust: `MaterialPreset` in `packages/common/src/material.rs` (`Option` fields, `apply_to`). TypeScript:
+  `selectionInfo.ts` (`applyPresetToLayer`, `extrasFromLayer`, `presetMatchesLayer`) and `configFormat.ts`.
+- Not done: the Material library list does not edit these three values (hover a preset's type to read them).
+  To change one, set it on a layer, save a new preset and delete the old one. The starter presets set none of
+  them. Not yet tried on a real laser.
+
+Next: whatever is chosen from the roadmap.

@@ -27,6 +27,10 @@
 - Start From (absolute, current position, user origin) and Job Origin. See docs/start-from.md.
 - Frame with the laser on at low power, so the outline can be seen on the material. Off by default
   and off again every time MakerLaser starts. See docs/framing.md.
+- Material presets remember overscan (Fill and Image), the outline pass (Fill) and the power ramp
+  (Score). Applying a preset sets them, the Layers panel shows them next to "Preset in use", and they
+  are saved in material library files. Older presets and files are unchanged and leave those settings
+  alone. See docs/config-formats.md.
 - Material test grid (speed x power), auto-arrange, and run order control (engrave, score, then cut,
   or your own order).
 

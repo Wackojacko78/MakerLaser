@@ -62,7 +62,9 @@ G1 X50 Y248.5      ; the burn, other direction
 - **Estimated time and distance:** overscan moves count as travel distance.
 - **Soft limits:** if $20 (soft limits) is on and the head is close to the machine edge, GRBL can
   raise an alarm for an overscan move. The bed clamp prevents this in Absolute mode.
-- **Presets:** material presets do not store overscan yet.
+- **Presets:** a material preset saved from a Fill or Image layer remembers its overscan, and applying
+  the preset sets it. Older presets do not set overscan, so applying one leaves it as it was. To change
+  the overscan stored in a preset, set it on a layer, save a new preset and delete the old one.
 
 ## Testing it
 

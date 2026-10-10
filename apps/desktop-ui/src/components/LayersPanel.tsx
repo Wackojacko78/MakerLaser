@@ -10,7 +10,7 @@ import {
   orderedLayers,
   runOrderWarning,
 } from '@/lib/runOrder';
-import { findMatchingPreset, presetAppliedMessage } from '@/lib/selectionInfo';
+import { applyPresetToLayer, extrasFromLayer, findMatchingPreset, presetAppliedMessage, presetExtrasSuffix } from '@/lib/selectionInfo';
 import { api } from '@/lib/tauri';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -260,10 +260,7 @@ function LayerCard({
             mutate((p) => {
               const l = p.layers.find((x) => x.id === layer.id);
               if (!l) return;
-              l.speed_mm_min = preset.speed_mm_min;
-              l.power_percent = preset.power_percent;
-              l.passes = preset.passes;
-              l.air_assist = preset.air_assist && p.machine.air_assist_supported;
+              applyPresetToLayer(preset, l, p.machine.air_assist_supported);
             });
           }}
         >
@@ -274,7 +271,7 @@ function LayerCard({
         </select>
       </div>
       <p className="hint" style={{ margin: '2px 0 4px', color: activePreset ? 'var(--ok)' : undefined }}>
-        {activePreset ? `Preset in use: ${activePreset.name}` : 'Custom settings (no preset applied)'}
+        {activePreset ? `Preset in use: ${activePreset.name}${presetExtrasSuffix(activePreset)}` : 'Custom settings (no preset applied)'}
       </p>
       <div className="preset-row">
         <input
@@ -297,6 +294,7 @@ function LayerCard({
                 power_percent: l.power_percent,
                 passes: l.passes,
                 air_assist: l.air_assist,
+                ...extrasFromLayer(l),
                 thickness_mm: null,
                 notes: null,
               });

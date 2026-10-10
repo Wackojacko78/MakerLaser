@@ -162,6 +162,12 @@ export interface MaterialPreset {
   power_percent: number;
   passes: number;
   air_assist: boolean;
+  /** Fill and Image presets: overscan in mm. Absent means the preset does not set it. */
+  overscan_mm?: number;
+  /** Fill presets: trace the edge after the fill. Absent means the preset does not set it. */
+  fill_outline?: boolean;
+  /** Score presets: power ramp length in mm. Absent means the preset does not set it. */
+  ramp_mm?: number;
   thickness_mm: number | null;
   notes: string | null;
 }

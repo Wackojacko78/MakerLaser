@@ -45,8 +45,17 @@ General rules for both formats:
 | `power_percent` | yes | Number above 0, at most 100. |
 | `passes` | yes | Whole number, 1 to 100. |
 | `air_assist` | no | `true` or `false`. Default `false`. |
+| `overscan_mm` | no | Number from 0 to 25, or `null`. Used by `fill` and `image` presets; ignored on other kinds. |
+| `fill_outline` | no | `true`, `false` or `null`. Used by `fill` presets only. |
+| `ramp_mm` | no | Number from 0 to 10, or `null`. Used by `score` presets only. |
 | `thickness_mm` | no | Number above 0 (at most 1000), or `null`. |
 | `notes` | no | Text up to 1000 characters, or `null`. |
+
+A preset only remembers the settings its layer type uses: overscan for Fill and Image, the outline
+pass for Fill and the power ramp for Score. When you apply a preset that sets them, the layer gets
+those values too. A preset that leaves them out (every preset made before they were added) does not
+touch them, so applying it keeps the layer's own overscan, outline and ramp. Older versions of
+MakerLaser ignore the three fields, so files that have them still open there.
 
 Importing:
 
