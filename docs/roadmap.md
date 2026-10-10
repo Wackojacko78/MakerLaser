@@ -17,6 +17,7 @@ Since 0.1.0:
 * Resizable console and right-hand panel.
 * Linux notes (docs/linux.md) and an Ubuntu job in CI.
 * Frame with the laser on at low power (off by default; docs/framing.md).
+* Console command box: read and change controller settings, for example `$$` and `$32=1` (docs/console.md).
 
 ## Next
 

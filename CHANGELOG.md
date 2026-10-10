@@ -17,6 +17,9 @@
 - Resizable console and right-hand panel.
 - Frame with the laser on at low power, so the outline can be seen on the material. Off by default
   and off again every time MakerLaser starts. See docs/framing.md.
+- Console command box: send `$$`, `$32=1` and other typed commands to the controller and see the
+  reply. No real-time characters, no laser-on, no `$RST`, and only when no job is running.
+  See docs/console.md.
 
 ### Changed
 - Frontend toolchain upgraded to Vite 7 and Vitest 4.

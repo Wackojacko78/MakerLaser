@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::error::{MachineError, Result};
 use crate::job_control::{JobControl, JobEvent};
 use crate::status::GrblStatus;
 
@@ -38,6 +38,16 @@ pub trait Controller: Send {
     fn set_origin(&mut self) -> Result<()>;
     /// Traces the rectangle with the laser **off**.
     fn frame(&mut self, min: (f64, f64), max: (f64, f64), feed_mm_min: f64) -> Result<()>;
+    /// Sends one typed command (the console box) and returns the lines the controller printed in
+    /// reply, for example the settings list for `$$`. Waits for the controller's `ok` or `error`.
+    /// `control` lets STOP end the wait. The default says typed commands are not available, which
+    /// is what the simulator answers.
+    fn send_command(&mut self, _line: &str, _control: &JobControl) -> Result<Vec<String>> {
+        Err(MachineError::InvalidRequest(
+            "Typed commands are not available with the simulator.".into(),
+        ))
+    }
+
     /// Streams a program. Returns once the machine has actually finished (Idle), not merely
     /// when the last line was accepted.
     fn run_program(

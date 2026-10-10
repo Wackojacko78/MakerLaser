@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod console;
 mod placement;
 mod state;
 
@@ -45,6 +46,7 @@ fn main() {
             machine_cmds::machine_pause,
             machine_cmds::machine_resume,
             machine_cmds::machine_stop,
+            machine_cmds::machine_send,
             material_cmds::import_materials,
             material_cmds::export_materials,
             config_cmds::read_config_file,

@@ -30,6 +30,9 @@ const HOMING_TIMEOUT: Duration = Duration::from_secs(180);
 /// only sent once GRBL's planner has room.
 const MOTION_ACK_TIMEOUT: Duration = Duration::from_secs(900);
 const IDLE_WAIT_TIMEOUT: Duration = Duration::from_secs(1800);
+/// A typed command that is not a `$` command (a move, say) can wait for the planner. STOP ends
+/// the wait, so this only has to be long enough for a slow move.
+const CONSOLE_MOTION_TIMEOUT: Duration = Duration::from_secs(60);
 /// GRBL's RX buffer is 128 bytes; stay a little under it.
 const RX_BUFFER_BYTES: usize = 120;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
@@ -360,6 +363,35 @@ fn run_program_on<L: Link>(
     outcome
 }
 
+/// How long to wait for the `ok` of a typed command: homing takes a while, settings answer at
+/// once, and a move can wait for the planner.
+fn command_timeout(line: &str) -> Duration {
+    let upper = line.trim_start().to_ascii_uppercase();
+    if upper.starts_with("$H") {
+        HOMING_TIMEOUT
+    } else if upper.starts_with('$') {
+        COMMAND_TIMEOUT
+    } else {
+        CONSOLE_MOTION_TIMEOUT
+    }
+}
+
+/// Sends one typed line and collects what the controller printed before its `ok`: for `$$`, the
+/// settings. An `error:` or `ALARM:` answer is an error. STOP (through `control`) ends the wait.
+fn send_command_on<L: Link>(
+    link: &mut L,
+    line: &str,
+    control: &JobControl,
+) -> Result<Vec<String>> {
+    link.discard_pending();
+    link.send(format!("{line}\n").as_bytes())?;
+    let mut replies = Vec::new();
+    await_ack(link, command_timeout(line), Some(control), &mut |reply: &str| {
+        replies.push(reply.to_string());
+    })?;
+    Ok(replies)
+}
+
 fn validate_finite(values: &[f64]) -> Result<()> {
     if values.iter().all(|v| v.is_finite()) {
         Ok(())
@@ -492,6 +524,11 @@ impl Controller for GrblController {
             )?;
         }
         Ok(())
+    }
+
+    fn send_command(&mut self, line: &str, control: &JobControl) -> Result<Vec<String>> {
+        let link = self.link()?;
+        send_command_on(link, line, control)
     }
 
     fn run_program(
@@ -741,6 +778,71 @@ mod tests {
         assert!(matches!(c.query_status(), Err(MachineError::NotConnected)));
         assert!(!c.is_connected());
         assert!(c.realtime_handle().is_none());
+    }
+
+    #[test]
+    fn a_typed_command_is_sent_once_and_what_the_controller_printed_comes_back() {
+        // A scripted GRBL that answers "$$" with a status report, two settings and then "ok".
+        struct Scripted {
+            out: VecDeque<String>,
+            sent: Vec<String>,
+        }
+        impl Link for Scripted {
+            fn send(&mut self, bytes: &[u8]) -> Result<()> {
+                self.sent
+                    .push(String::from_utf8_lossy(bytes).trim().to_string());
+                let script = ["<Idle|MPos:0.000,0.000,0.000|FS:0,0>", "$0=10", "$32=1", "ok"];
+                self.out.extend(script.iter().map(|line| line.to_string()));
+                Ok(())
+            }
+            fn read_line(&mut self) -> Result<Option<String>> {
+                Ok(self.out.pop_front())
+            }
+            fn discard_pending(&mut self) {
+                self.out.clear();
+            }
+        }
+        let mut grbl = Scripted {
+            out: VecDeque::new(),
+            sent: Vec::new(),
+        };
+        let replies = send_command_on(&mut grbl, "$$", &JobControl::new()).unwrap();
+        assert_eq!(replies, vec!["$0=10".to_string(), "$32=1".to_string()]);
+        assert_eq!(grbl.sent, vec!["$$".to_string()]);
+    }
+
+    #[test]
+    fn a_typed_command_without_a_reply_gives_an_empty_list() {
+        let mut grbl = FakeGrbl::new();
+        let replies = send_command_on(&mut grbl, "G0 X1", &JobControl::new()).unwrap();
+        assert!(replies.is_empty());
+        assert_eq!(grbl.written_lines, vec!["G0 X1".to_string()]);
+    }
+
+    #[test]
+    fn a_typed_command_the_controller_rejects_reports_the_error() {
+        let mut grbl = FakeGrbl::new();
+        grbl.fail_on_line = Some(0);
+        let err = send_command_on(&mut grbl, "$32=1", &JobControl::new()).unwrap_err();
+        assert!(err.to_string().contains("error:22"), "{err}");
+    }
+
+    #[test]
+    fn stop_ends_the_wait_for_a_typed_command() {
+        let mut grbl = FakeGrbl::new();
+        let control = JobControl::new();
+        control.request_abort();
+        let result = send_command_on(&mut grbl, "G0 X1", &control);
+        assert!(matches!(result, Err(MachineError::Aborted)), "{result:?}");
+    }
+
+    #[test]
+    fn homing_gets_the_long_wait_and_settings_the_short_one() {
+        assert_eq!(command_timeout("$H"), HOMING_TIMEOUT);
+        assert_eq!(command_timeout("  $h"), HOMING_TIMEOUT);
+        assert_eq!(command_timeout("$$"), COMMAND_TIMEOUT);
+        assert_eq!(command_timeout("$32=1"), COMMAND_TIMEOUT);
+        assert_eq!(command_timeout("g0 x1"), CONSOLE_MOTION_TIMEOUT);
     }
 
     #[test]

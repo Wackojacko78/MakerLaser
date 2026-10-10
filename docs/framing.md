@@ -57,7 +57,7 @@ are added, as for a job. The laser is always off before the return move.
 
 - MakerLaser does not read `$32`. With laser mode off (`$32=0`) GRBL treats `M4` as a spindle and
   the beam stays on at constant power for the whole trace, and STOP is then the only way to end
-  it early. Check that `$32=1` on your machine.
+  it early. Check that `$32=1` on your machine: type `$$` in the console box (docs/console.md).
 - Whether the beam is visible, and whether it marks the material, depends on the laser, the
   material and the room. Frame speed is 3000 mm/min (or the machine's maximum if lower).
 - The simulator has no beam. The console log says whether the laser was on.

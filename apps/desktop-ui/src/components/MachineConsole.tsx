@@ -4,6 +4,13 @@ import { ask, save } from '@tauri-apps/plugin-dialog';
 import { NumberField } from '@/components/NumberField';
 import { PreflightDialog } from '@/components/PreflightDialog';
 import { frameFlow, startJobFlow, stopFlow } from '@/lib/actions';
+import {
+  addToHistory,
+  commandPlaceholder,
+  laserModeNote,
+  normaliseCommand,
+  stepHistory,
+} from '@/lib/consoleCommand';
 import { errorMessage, formatDuration } from '@/lib/format';
 import {
   FRAME_LASER_MAX_PERCENT,
@@ -98,6 +105,45 @@ export function MachineConsole() {
   const notify = useNoticeStore((s) => s.show);
   const [tab, setTab] = useState<Tab>('console');
   const [preflight, setPreflight] = useState(false);
+  const [command, setCommand] = useState('');
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  // Sends the typed command and shows what the controller printed back.
+  const sendCommand = async () => {
+    const text = normaliseCommand(command);
+    if (text === '' || sending) return;
+    setSending(true);
+    setCommand('');
+    setHistoryIndex(null);
+    setCommandHistory((h) => addToHistory(h, text));
+    job.addLog(`> ${text}`);
+    try {
+      const replies = await api.send(text);
+      replies.forEach((reply) => job.addLog(reply));
+      const note = laserModeNote(replies);
+      if (note) job.addLog(note);
+      if (replies.length === 0) job.addLog('ok');
+    } catch (e) {
+      job.addLog(`Command failed: ${errorMessage(e)}`);
+    } finally {
+      setSending(false);
+    }
+  };
+  // Returns true when the key was used by the command box.
+  const handleCommandKey = (key: string): boolean => {
+    if (key === 'Enter') {
+      void sendCommand();
+      return true;
+    }
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      const step = stepHistory(commandHistory, historyIndex, key === 'ArrowUp' ? 'older' : 'newer');
+      setHistoryIndex(step.index);
+      if (step.text !== null) setCommand(step.text);
+      return true;
+    }
+    return false;
+  };
   const frameCfg = useFrameLaser();
   const [framing, setFraming] = useState(false);
   const requestFrame = () => {
@@ -376,7 +422,26 @@ export function MachineConsole() {
             Save G-code…
           </button>
         )}
-        <span className="spacer" />
+        {tab === 'console' ? (
+          <input
+            className="console-command"
+            style={{ flex: '1 1 160px', minWidth: 0, fontFamily: 'monospace' }}
+            type="text"
+            value={command}
+            spellCheck={false}
+            autoComplete="off"
+            maxLength={80}
+            disabled={!idle || machine.simulated}
+            placeholder={commandPlaceholder({ connected: machine.connected, simulated: machine.simulated, running: job.running })}
+            aria-label="Command to send to the machine"
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={(e) => {
+              if (handleCommandKey(e.key)) e.preventDefault();
+            }}
+          />
+        ) : (
+          <span className="spacer" />
+        )}
         <button className="mini" onClick={job.clearLog}>Clear</button>
       </div>
 

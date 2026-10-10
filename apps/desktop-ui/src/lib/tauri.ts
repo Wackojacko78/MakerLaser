@@ -49,6 +49,8 @@ export const api = {
   pause: () => invoke<void>('machine_pause'),
   resume: () => invoke<void>('machine_resume'),
   stop: () => invoke<void>('machine_stop'),
+  /** Sends one typed command and returns the lines the controller printed back (see docs/console.md). */
+  send: (line: string) => invoke<string[]>('machine_send', { line }),
 
   importMaterials: (path: string) => invoke<MaterialLibrary>('import_materials', { path }),
   exportMaterials: (path: string, library: MaterialLibrary) =>

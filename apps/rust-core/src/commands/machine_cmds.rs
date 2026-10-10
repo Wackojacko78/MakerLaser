@@ -17,6 +17,7 @@ use makerlaser_machine::{
 use serde::Serialize;
 use tauri::{Emitter, State};
 
+use crate::console::{changes_machine_coordinates, check_console_line};
 use crate::placement::{frame_laser_s, frame_program, laser_frame_program, place_program, Placement};
 use crate::state::{fingerprint, lock, AppState, POISONED};
 
@@ -402,6 +403,34 @@ pub fn machine_resume(state: State<'_, AppState>) -> Result<(), String> {
     realtime(&state)?.resume().map_err(|e| e.to_string())?;
     state.job_control.request_resume();
     Ok(())
+}
+
+/// Sends one typed command to the controller (the console box) and returns what it printed in
+/// reply, for example the settings list for `$$`. Only with a real machine connected and no job
+/// running. The line is checked first (see `console.rs`): one plain line, no real-time characters,
+/// nothing that switches the laser on.
+#[tauri::command(async)]
+pub fn machine_send(state: State<'_, AppState>, line: String) -> Result<Vec<String>, String> {
+    let line = check_console_line(&line)?;
+    if is_running(&state) {
+        return Err(
+            "A job is running. Use Pause or STOP; commands can be sent when it has finished."
+                .to_string(),
+        );
+    }
+    let mut controller = state.controller()?;
+    if !controller.is_connected() {
+        return Err("No machine or simulator is connected.".to_string());
+    }
+    // STOP asks the job control to abort, which also ends a command that is still waiting.
+    state.job_control.reset();
+    let outcome = controller.send_command(&line, &state.job_control);
+    if changes_machine_coordinates(&line) {
+        // Homing, or a setting that moves zero or changes the position report: a remembered
+        // machine position may no longer be valid.
+        state.clear_user_origin();
+    }
+    outcome.map_err(|e| e.to_string())
 }
 
 /// Emergency stop: the job loop is told to stop sending *first*, then GRBL is soft-reset
