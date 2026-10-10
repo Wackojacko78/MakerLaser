@@ -41,6 +41,9 @@ the table below and reports any that are missing or no longer exist.
 | `machine_send` | `line` | `string[]` | One typed command (the console box) and the reply lines. Only when a real machine is connected and no job is running; refuses laser-on, `$RST`, real-time characters and more than 80 characters (`docs/console.md`) |
 | `machine_user_origin` | | `[x, y] \| null` | The stored User origin, in machine coordinates |
 | `machine_clear_user_origin` | | | Forgets the stored User origin |
+| `machine_set_user_origin` | | `[x, y]` | Stores the head's current machine position as the User origin and returns it. Refused while a job is running, and needs a connected machine (`docs/start-from.md`) | 
+| `read_config_file` | `path` | `string` | Reads a machine or material JSON file and returns its text. Refuses a file over the size limit (`docs/config-formats.md`) | 
+| `write_config_file` | `path`, `text` | | Writes a machine or material JSON file. Refuses text over the size limit |
 | `import_materials` / `export_materials` | `path` (, `library`) | `MaterialLibrary` / – | JSON files |
 
 ## `GenerateResponse`
