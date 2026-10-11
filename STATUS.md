@@ -232,3 +232,83 @@ and bundle those files plus `apps/desktop-ui/src/lib/arrange.ts`, `apps/desktop-
 `apps/desktop-ui/src/components/Toolbar.tsx`, `apps/desktop-ui/src/components/ToolsPanel.tsx`,
 `apps/desktop-ui/src/state/projectStore.ts` and `apps/rust-core/src/main.rs` with the `Bundle` function
 shown earlier in this file.
+
+## Update 2026-10-11 (step 3): shape tools. This replaces "Next task: step 3" above.
+
+Done on branch `shape-tools` (merge to main once CI is green and it has been tried in the app):
+
+- **Shape tools** panel inside the Properties panel (`apps/desktop-ui/src/components/ShapeToolsPanel.tsx`, planning in
+  `apps/desktop-ui/src/lib/shapeOps.ts`): Union, Subtract, Intersect, Exclude; Offset outward or inward with sharp or
+  round corners and a Keep the original tick; a circular array (pieces, angle, centre X and Y, turn the copies). No
+  pop-up windows: the answer is written under the buttons, and each action is one undo step.
+- **Rust:** `packages/geometry/src/shape_ops.rs` (`combine`, `offset_shape`) sits on `clip.rs` and `offset.rs`. Holes are found
+  by which path lies inside which, not by the direction a path was drawn in, and every path is turned the right way
+  round before Clipper2 sees it, so the answer does not depend on the default fill rule. Offset goes level by level
+  (outlines grow, holes shrink, islands grow again), so a ring stays a ring. Two new commands in
+  `apps/rust-core/src/commands/geometry_cmds.rs`: `boolean_paths` and `offset_paths` (they take and return paths in
+  workspace mm and change nothing in the project). Limits: 500 shapes, 2,000,000 points, offsets up to 1000 mm.
+- Subtract keeps the shape furthest back (lowest `z_index`, lowest in the Objects list) and cuts the others out of it.
+  The result replaces the selected shapes, joins the layer of the shape furthest back and has no `source`, so it is no
+  longer editable as a rectangle or as text. Pictures, locked shapes and objects with open lines are refused by name.
+- Rows and columns already existed in Arrange (`planArray` in `arrange.ts`), so only the circular array is new.
+- Not done: a preview of the array drawn on the canvas (the panel gives a text summary and a bed warning), a way to swap
+  which shape Subtract keeps, and Shape tools fields in inches (they are in mm).
+- **Compiled and tested on the owner's PC (11 Oct 2026):** the Rust built first time. One test failed: shapes at the same level were offset one by one but not merged, so two shapes that grew into each other stayed as two overlapping paths. Fixed in `offset_shape` (they are united level by level), with a new test for holes that grow into each other. The panel has not been tried with a mouse yet. The install script also added one `pub mod` line to the commands module list.
+- Documentation: `docs/user-guide.md` and `CHANGELOG.md`. The install script also tried to add two rows to the command
+  table in `docs/api.md`; if `node scripts/check-docs.mjs` complains, that is the place to look.
+
+**Next task: step 4, bitmap trace to vector** (import a JPG or PNG, adjust threshold and corner smoothing, preview, then
+make ordinary editable paths). To make the bundle, run from the repo root with the `Bundle` function shown earlier in
+this file:
+
+    git grep -l -E "load_grayscale|import_artwork|ImageData|raster_preview|rasterPreview" -- '*.rs' '*.ts' '*.tsx' ':!*/tests/*'
+
+and add `apps/rust-core/src/commands/import_cmds.rs`, `packages/raster/src/lib.rs`, `packages/raster/src/adjust.rs`,
+`packages/raster/src/dither.rs`, `packages/geometry/src/lib.rs`, `packages/common/src/objects.rs`,
+`apps/desktop-ui/src/lib/actions.ts`, `apps/desktop-ui/src/lib/tauri.ts`, `apps/desktop-ui/src/types/domain.ts`,
+`apps/desktop-ui/src/components/ShapeToolsPanel.tsx`, `docs/import.md`, `docs/api.md`, `scripts/check-docs.mjs` and
+`CHANGELOG.md`. If a tracing library is used rather than our own, check its licence against GPL-3.0-or-later.
+
+## Update 2026-10-11 (step 3, panel pass): layout, base shape and border. Read with the step 3 notes above.
+
+Changes made after trying the shape tools in the app (still on branch `shape-tools`, not merged yet):
+
+- **Layout.** `ShapeToolsPanel.tsx` no longer uses the `.field-row` classes. It has its own two-column grid
+  (`minmax(0, 1fr)`) with each label above its box, so nothing is squeezed or cut off in the narrow
+  Properties column. Rendered with React in headless Chromium at 300 and 350 px wide with an approximation of
+  the app's colours: no overflow. The app's real CSS was not available for that check.
+- **Subtract from.** With two or more closed shapes selected there is a "Subtract from" list (name and size on
+  the bed). The chosen shape is the base: Subtract cuts the others out of it and the result goes on its layer.
+  It starts as the shape furthest back. `planBoolean(objects, ids, op, baseId)` takes the choice; the line under
+  the list says exactly what will be cut out of what. This replaces the old "Not done: a way to swap which shape
+  Subtract keeps".
+- **Offset result: Border only.** Engraving (Fill) covers the whole of a shape, so an offset shape on its own
+  also fills the middle, even when the original sits inside it on another layer. "Border only (a frame)" makes
+  the band between the old outline and the new one instead: growing is new minus old, shrinking is old minus
+  new (`planBorder` in `shapeOps.ts`; it calls the existing `boolean_paths` command, so there is no new Rust).
+  A shape shrunk away gives the whole shape as its border. Names read "Square (border +3 mm)".
+- Tests: `shapeOps.test.ts` now has 40 tests (they passed in a stand-in runner, not in the project's own).
+  Not tried with a mouse yet.
+
+## Update 2026-10-11 (step 3, window pass): Ctrl adds to the selection; Shape tools is a window. Read with the step 3 notes above.
+
+Changes after trying the shape tools in the app (still on branch `shape-tools`, not merged yet):
+
+- **Ctrl (Cmd on a Mac) now works like Shift for adding to the selection**, on the canvas (click and box select) and in
+  the Objects list. Every selection check used `shiftKey` only (`WorkspaceCanvas.tsx`, `PropertiesPanel.tsx`); they now
+  call `isAdditiveSelect` in `apps/desktop-ui/src/lib/selectionKeys.ts`. The Measure and drawing tools still use Shift
+  for their own purposes and were not touched. The canvas hint reads "Shift or Ctrl: add to selection". The canvas
+  (Konva) change is a one-word edit and has not been tried with a mouse yet.
+- **Shape tools is a window, not a section of the Properties panel.** That panel only exists while something is
+  selected, so the section vanished (and lost its settings) whenever the selection changed. Now: a "Shape tools…" button
+  in the toolbar opens it and the x in its title bar closes it; in between it stays up whatever is selected and works on
+  the current selection. `ShapeToolsPanel` is mounted once in `App.tsx` and draws nothing while closed, so its settings
+  are kept; the open flag is `state/shapeToolsStore.ts`. Drag the title bar to move it; double-click the title bar to put
+  it back (the position is CSS-clamped so it stays on screen). It sits beside the right-hand panel by default.
+  The message under the buttons belongs to the selection it was about and hides when something else is selected
+  (`selectionKey`).
+- Checked in headless Chromium with the real component, real React and the app's own CSS values (34 checks: stays up
+  while the selection changes, drag, clamp, reset, close and reopen with settings kept, Union / Border / array actions,
+  no overflow, short window). The app's Konva canvas, the toolbar button and the real geometry commands were not part of
+  that test. 50 unit tests (`shapeOps`, `selectionKeys`) passed in a stand-in runner, not the project's own.
+- Not done: remembering the window's position between sessions; Esc does not close it (Esc clears the selection).

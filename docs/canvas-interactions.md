@@ -7,8 +7,8 @@
 | Mouse wheel | Zoom, centred on the pointer |
 | Middle-mouse drag | Pan |
 | Left-drag on empty canvas | Rubber-band (box) select; objects the box touches are selected |
-| Shift + box | Add to the current selection |
-| Click an object | Select it (Shift toggles) |
+| Shift or Ctrl + box | Add to the current selection |
+| Click an object | Select it (Shift or Ctrl toggles) |
 | Double-click a shape or text | Open its editor (docs/shapes-and-text.md) |
 | Drag a selected object, or the box around several | Move. Every selected object's final position is committed in one undo step |
 | Drag a handle | Resize (proportional from corners) |

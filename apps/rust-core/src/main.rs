@@ -9,7 +9,9 @@ mod console;
 mod placement;
 mod state;
 
-use commands::{config_cmds, gcode_cmds, import_cmds, machine_cmds, material_cmds, project_cmds};
+use commands::{
+    config_cmds, gcode_cmds, geometry_cmds, import_cmds, machine_cmds, material_cmds, project_cmds,
+};
 
 fn main() {
     env_logger::init();
@@ -51,6 +53,8 @@ fn main() {
             material_cmds::export_materials,
             config_cmds::read_config_file,
             config_cmds::write_config_file,
+            geometry_cmds::boolean_paths,
+            geometry_cmds::offset_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MakerLaser");

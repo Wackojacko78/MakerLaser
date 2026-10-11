@@ -7,6 +7,7 @@ pub mod dxf_import;
 pub mod error;
 pub mod join;
 pub mod offset;
+pub mod shape_ops;
 pub mod svg_import;
 
 pub use clip::{difference, inflate, intersect, union, xor, JoinType};

@@ -1,6 +1,7 @@
 import { NumberField } from '@/components/NumberField';
 import { ObjectFields } from '@/components/ObjectFields';
 import { SelectionStats } from '@/components/SelectionStats';
+import { isAdditiveSelect } from '@/lib/selectionKeys';
 import { boundsHeight, boundsWidth, unionBounds, worldBounds } from '@/lib/transform';
 import { useProjectStore } from '@/state/projectStore';
 import type { Bounds } from '@/lib/transform';
@@ -101,7 +102,7 @@ export function PropertiesPanel() {
               <li
                 key={o.id}
                 className={selected.includes(o.id) ? 'selected' : ''}
-                onClick={(e) => select(o.id, e.shiftKey)}
+                onClick={(e) => select(o.id, isAdditiveSelect(e))}
               >
                 <i style={{ background: layer?.color ?? '#6b7885' }} title={layer ? layer.name : 'No layer: will not run'} />
                 <span className="name">{o.name}</span>

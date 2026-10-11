@@ -8,6 +8,7 @@ import type {
   ImportedArtwork,
   MachineProfile,
   MaterialLibrary,
+  Path2D,
   ProjectFile,
   RasterOperation,
   SerialPortInfo,
@@ -58,4 +59,8 @@ export const api = {
   /** Plain-text .json config files (material libraries, machine profiles): see lib/configFormat.ts. */
   readConfigFile: (path: string) => invoke<string>('read_config_file', { path }),
   writeConfigFile: (path: string, text: string) => invoke<void>('write_config_file', { path, text }),
+  /** Shape tools (see lib/shapeOps.ts). Paths are in workspace mm. `op` is union, subtract, intersect or exclude. */
+  booleanPaths: (op: string, shapes: Path2D[][]) => invoke<Path2D[]>('boolean_paths', { op, shapes }),
+  /** Offsets one shape: a positive `deltaMm` grows it, a negative one shrinks it. */
+  offsetPaths: (paths: Path2D[], deltaMm: number, rounded: boolean) => invoke<Path2D[]>('offset_paths', { paths, deltaMm, rounded }),
 };

@@ -12,6 +12,7 @@ import { MeasureReadout } from '@/components/MeasureReadout';
 import { PX_PER_MM } from '@/lib/constants';
 import type { Draft } from '@/lib/inlineEdit';
 import { SNAP_PX, freePoint, snapAt, type MeasureItem } from '@/lib/measure';
+import { isAdditiveSelect } from '@/lib/selectionKeys';
 import { api } from '@/lib/tauri';
 import { compose, decompose, fitView, imageSizeMm, objectsInBox, originInfo } from '@/lib/transform';
 import { useEditStore } from '@/state/editStore';
@@ -337,7 +338,7 @@ export function WorkspaceCanvas() {
     }
     // Empty canvas (bed, grid and overlays do not listen): start a rubber band.
     if (e.evt.button === 0 && e.target === e.target.getStage()) {
-      if (!e.evt.shiftKey) clearSelection();
+      if (!isAdditiveSelect(e.evt)) clearSelection();
       const p = worldPointer();
       if (!p) return;
       bandRef.current = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
@@ -431,7 +432,7 @@ export function WorkspaceCanvas() {
           onMouseMove={onMouseMove}
           onMouseUp={(e: Konva.KonvaEventObject<MouseEvent>) => {
             finishDraft();
-            finishBand(e.evt.shiftKey);
+            finishBand(isAdditiveSelect(e.evt));
           }}
           onMouseLeave={() => {
             finishDraft();
@@ -477,7 +478,7 @@ export function WorkspaceCanvas() {
                       if (drawTool !== null) return; // a drawing tool starts a new shape instead
                       e.cancelBubble = true; // do not start a rubber band
                       const already = useProjectStore.getState().selected.includes(o.id);
-                      if (e.evt.shiftKey) select(o.id, true);
+                      if (isAdditiveSelect(e.evt)) select(o.id, true);
                       else if (!already) select(o.id);
                     }}
                     onDragEnd={scheduleCommit}
@@ -543,7 +544,7 @@ export function WorkspaceCanvas() {
       <MeasureReadout />
       <CanvasEditor container={{ left: canvasPos.left, top: canvasPos.top, width: size.w, height: size.h }} />
       <div className="canvas-hint">
-        Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift: add to
+        Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift or Ctrl: add to
         selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; R E P S T: draw &middot; Esc: leave a drawing tool
       </div>
     </div>

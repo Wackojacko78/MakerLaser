@@ -73,8 +73,9 @@ Decided 11 October 2026. Each step is its own update, checked before the next.
 1. **Hardware bring-up and 0.2.0** (see Next).
 2. **Layers and image panel**, finished: lock, colour and drag order are in; a choice of grayscale
    conversion is not (it needs a change to how images are loaded).
-3. **Boolean, offset and arrays in the interface.** The 0.1.0 changelog lists booleans and offsetting
-   in the geometry engine; the interface does not offer them yet. Arrays are new.
+3. **Boolean, offset and arrays in the interface**, done: the Shape tools panel (docs/user-guide.md) has
+   Union, Subtract, Intersect, Exclude, Offset and a circular array. Rows and columns were already in
+   Arrange. Not done: a preview of the array drawn on the canvas.
 4. **Bitmap trace** to editable vector paths.
 5. **Fillets and chamfers** on corners.
 6. **Node editing.** Needs paths that can hold curves (they are straight-segment lists today), which

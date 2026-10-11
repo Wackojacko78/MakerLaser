@@ -44,6 +44,32 @@ origin decides which way the job is mirrored. The same window has **Job placemen
 
 Move, resize and rotate with the mouse or by typing numbers in **Properties**. **Ctrl+Z** undoes.
 
+**Combine, offset and repeat.** Select the shapes (Shift-click or Ctrl-click adds to the selection), then click **Shape tools…** in the toolbar.
+The window stays open, whatever is selected, until you close it with **×**. Drag its title bar to move it;
+double-click the title bar to put it back.
+Each action works on the selection, is one **Ctrl+Z** step, and reports under the buttons.
+
+* **Union, Subtract, Intersect, Exclude** combine two or more closed shapes (rectangles, ellipses, text,
+  closed paths) into one new shape that replaces them. Pictures, locked shapes and open lines are
+  refused, and the message names them. The new shape goes on the layer of the base shape. Under **Subtract from**
+  you choose the base shape: **Subtract** cuts all the other selected shapes out of it. It starts as the
+  shape furthest back (the lowest in the Objects list). A combined
+  shape is a plain outline, so it can no longer be edited as a rectangle or as text. Results are
+  snapped to a 0.01 mm grid.
+* **Offset** (**Outward** or **Inward**) makes a new outline the distance you type away from every
+  selected closed shape, on the same layer. Holes move the other way, so a ring stays a ring, and a
+  shape that is shrunk away leaves nothing. **Corners** Sharp keeps the points (a very sharp point is
+  cut off flat), Round rounds them. Turn **Keep the original** off to replace the original. Engraving fills the
+  whole of a shape, so an offset shape engraved on its own also fills its middle: set **Result** to
+  **Border only** to get a frame instead (the band between the old outline and the new one, with the middle
+  empty). Use it for borders, inlays and clearances. It is separate from the **Kerf** setting of a Cut layer, which is
+  applied when the job is generated.
+* **Circular array** repeats the selection round a centre point: **Pieces** (the original included),
+  **Angle** (360 is a full circle; less runs from the first piece to the last), **Centre X** and **Y**
+  (the middle of the bed to start with) and **Turn the copies**. The copies go clockwise. The line under
+  the settings says what it will make and warns if the pattern leaves the bed. For rows and columns use
+  **Arrange…**.
+
 ## 4. Layers and materials
 
 Every object belongs to one layer, and the layer says what the laser does with it:

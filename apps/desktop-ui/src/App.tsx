@@ -6,6 +6,7 @@ import { MachineConsole } from '@/components/MachineConsole';
 import { CloseGuard } from '@/components/CloseGuard';
 import { MaterialsPanel } from '@/components/MaterialsPanel';
 import { PropertiesPanel } from '@/components/PropertiesPanel';
+import { ShapeToolsPanel } from '@/components/ShapeToolsPanel';
 import { ToolsPanel } from '@/components/ToolsPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { errorMessage } from '@/lib/format';
@@ -113,6 +114,7 @@ export default function App() {
       </div>
       <MachineConsole />
       <CloseGuard />
+      <ShapeToolsPanel />
       {notice && (
         <div className={`notice ${notice.kind}`} role="status" onClick={dismiss}>
           {notice.text}
