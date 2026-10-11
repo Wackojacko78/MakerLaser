@@ -18,6 +18,9 @@
 - Shape tools: a "Subtract from" list chooses which shape the others are cut out of, Offset can make a
   border (a frame with the middle empty) instead of a whole shape, and the panel is laid out to fit the
   narrow Properties column.
+- Shape tools: Fillet and Chamfer round or cut off the corners of the selected shapes: a size, which corners (all,
+  outside or inside) and a minimum bend so smooth curves are left alone. One undo step, and the result is a plain
+  outline. See docs/user-guide.md.
 - Ctrl (Cmd on a Mac) now works like Shift for adding to the selection: clicking on the canvas, clicking in
   the Objects list, and box select.
 - The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.

@@ -397,3 +397,55 @@ branch no longer exists). This update is on branch `right-tabs` (merge to main o
 - Not done: remembering the selected tab or the zoom between sessions; splitting Layers into its own tab (the tab list is one
   array in `lib/rightTabs.ts`, so adding a tab is a few lines); Arrange and Test grid are still pop-up dialogs.
 
+## Update 2026-10-11 (step 5): fillet and chamfer. This replaces "Next task: step 5" above.
+
+State first: the right-hand tabs update is on `main` (commit 4ac9c8a, CI green: 813 front-end tests and both Rust jobs). This update
+is on branch `corners` (merge to main once the checks pass and it has been tried in the app).
+
+- **Fillet and chamfer** is a new group in the Shape tools tab (`ShapeToolsPanel.tsx`), under Offset: Size (mm), Skip bends gentler
+  than (degrees), Which corners (all, outside, inside), a line saying how many corners the settings find, a Fillet button, a
+  Chamfer button and Keep the original. It works on every selected closed shape on its own and makes one new object per shape
+  (named like "Square (rounded 3 mm)", on the same layer, a plain outline with no recipe). It is one undo step and says what it did
+  under the buttons. The original is kept unless Keep the original is off; a locked original, or one with open lines, is never replaced.
+- **No Rust, no new command, no Cargo change.** The geometry is pure TypeScript in `lib/corners.ts`, unit-tested in
+  `tests/corners.test.ts` (52 tests). It was also compared with an independent construction (shapely: shrink then grow back for
+  outside corners, grow then shrink back for inside corners): 66 cases (square, rectangle, L, T, triangle, hexagon, a ring and a
+  nested island, drawn both ways round, rotated), all within the allowance for the flat segments of the arcs (0.02 mm tolerance).
+- **How it works.** Each closed outline is cleaned (repeated points out). At every point the turn angle is measured. A corner is any
+  point that turns the outline by at least the minimum (30 degrees to start with, so circles and already-rounded rectangles are left
+  alone; a spike that doubles back is never a corner). Outside or inside is worked out from nesting (which outline lies inside which),
+  not from the direction an outline was drawn in, so a hole drawn the same way round as its outline is still a hole, and an island in
+  a hole sticks out again. A fillet of radius r at a corner that turns by t cuts back r times tan(t / 2) along both edges and joins
+  the two points with an arc, flattened like every shape; a chamfer cuts back the size. Where two neighbouring corners want the same
+  edge it is shared in proportion to what each wants, so they never overlap; a corner whose neighbour is not changing may use the
+  whole edge. A corner made smaller is counted and reported. One with less than 0.0001 mm of room is left alone and reported.
+- Limits: size 0.01 to 500 mm; minimum bend 1 to 179 degrees; a shape with more than 5,000 outlines or 200,000 points is refused
+  (working out which outline is inside which grows fast), so a big Trace result needs Simplify first. Open lines are left out, as with Offset.
+- A rectangle made with the Rectangle tool keeps its own Radius box and stays editable. Fillet makes a plain outline from it, so
+  use that box when the rectangle should stay a rectangle. Not done: setting that radius from this panel.
+- Known limit: a size so large that it reaches another part of the same shape (a thin neck, a narrow notch) can make the result
+  overlap itself, because only neighbouring corners are kept apart. Look at the result, or press Undo. Single corners cannot be
+  picked: that needs node editing, step 6.
+- Checked: 52 unit tests in a stand-in runner (not the project's own), with 12 deliberate breakages of the geometry each caught; and
+  43 checks of the real panel in headless Chromium with real React and the real shape code (areas of the results, names, layers,
+  one undo step, keep and replace, a locked original, a circle with no corners, a star's tips and notches, a huge size cut down to
+  fit, a ring, a stretched object, names of what was left out, bad numbers, settings kept while the tab is hidden, no sideways
+  overflow at 300, 340 and 380 px), plus deliberate breakages of the panel. Stand-ins were used for the project store, NumberField,
+  selectionKeys, the Tauri call and arrange.ts (only two names from it are used). **NOT tried in the real app.**
+- Documentation: user guide, changelog and roadmap.
+
+**Next task: step 6, node editing.** This is the big one. Paths are lists of straight segments today, so there is nothing for a Bezier
+handle to hold. Plan it before writing any code: a short design note that says what the new path model is (segments that can be
+lines or cubic curves), what loads and saves (old projects must open unchanged), where curves are flattened (the CAM, offset,
+boolean and trace code all expect straight segments), and how editing on the canvas works (select a node, drag it, add and
+remove nodes, turn a line into a curve, handles). Then build in stages, each its own checked update. To make the first bundle,
+run from the repo root with the `Bundle` function shown earlier in this file:
+
+    git grep -l -E "Path2D|\.points\b" -- '*.rs' '*.ts' '*.tsx' ':!*/tests/*'
+
+That list is long. For the design pass the most useful files are `packages/common/src/geometry_types.rs`,
+`packages/common/src/objects.rs`, `packages/geometry/src/bezier.rs`, `packages/geometry/src/svg_import.rs`,
+`packages/project/src/toolpath.rs`, `packages/project/src/mlp.rs`, `apps/desktop-ui/src/types/domain.ts`,
+`apps/desktop-ui/src/canvas/WorkspaceCanvas.tsx`, `apps/desktop-ui/src/lib/shapes.ts`, `apps/desktop-ui/src/lib/textTrace.ts` and
+`apps/desktop-ui/src/lib/corners.ts`, plus the project format and architecture documents in `docs`. Step 7 (cut tabs) does not
+depend on step 6, so it could go first if node editing needs more thought.

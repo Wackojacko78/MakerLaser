@@ -78,7 +78,8 @@ Decided 11 October 2026. Each step is its own update, checked before the next.
    Arrange. Not done: a preview of the array drawn on the canvas.
 4. **Bitmap trace**, done: select a picture and open Trace… (docs/import.md). The outlines are straight-sided
    paths; editing their points is step 6, node editing.
-5. **Fillets and chamfers** on corners.
+5. **Fillets and chamfers**, done: Shape tools has Fillet and Chamfer for all corners, outside corners or inside
+   corners of the selected shapes (docs/user-guide.md). Picking single corners waits for node editing, step 6.
 6. **Node editing.** Needs paths that can hold curves (they are straight-segment lists today), which
    touches import, CAM, booleans and offset, so it is planned as its own project.
 7. **Cut tabs and bridges.**

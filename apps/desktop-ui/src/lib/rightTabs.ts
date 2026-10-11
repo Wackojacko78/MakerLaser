@@ -12,7 +12,7 @@ export interface TabInfo {
 /** The tabs, left to right. */
 export const RIGHT_TABS: readonly TabInfo[] = [
   { id: 'properties', label: 'Properties', title: 'The selection, the objects, the layers and the material library' },
-  { id: 'shape', label: 'Shape tools', title: 'Combine, offset and repeat shapes' },
+  { id: 'shape', label: 'Shape tools', title: 'Combine, offset, round corners and repeat shapes' },
   { id: 'trace', label: 'Trace', title: 'Turn a picture into outlines' },
 ];
 

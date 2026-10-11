@@ -73,7 +73,7 @@ export function Toolbar() {
           className={shapeToolsOpen ? 'accent' : undefined}
           aria-pressed={shapeToolsOpen}
           onClick={() => toggleRightTab('shape')}
-          title="Combine, offset and repeat shapes. Opens the Shape tools tab in the right-hand panel."
+          title="Combine, offset, round corners and repeat shapes. Opens the Shape tools tab in the right-hand panel."
         >
           Shape tools…
         </button>

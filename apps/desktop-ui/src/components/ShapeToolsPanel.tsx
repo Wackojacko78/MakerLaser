@@ -1,6 +1,25 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { PanelField, PanelGroup, PanelTick, fullWidth, hintStyle, twoColumns } from '@/components/PanelParts';
+import {
+  CORNER_WHICH,
+  CORNER_WHICH_LABELS,
+  DEFAULT_CORNER_SIZE_MM,
+  DEFAULT_MIN_TURN_DEG,
+  MAX_CORNER_MM,
+  MAX_TURN_DEG,
+  MIN_TURN_DEG,
+  cornersHint,
+  cornersName,
+  cornersSummary,
+  findCorners,
+  noCornersMessage,
+  planCorners,
+  roundCorners,
+  validateCornerOptions,
+  type CornerStyle,
+  type CornerWhich,
+} from '@/lib/corners';
 import { selectionKey } from '@/lib/selectionKeys';
 import { api } from '@/lib/tauri';
 import {
@@ -60,6 +79,28 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const [centerX, setCenterX] = useState<number | null>(null);
   const [centerY, setCenterY] = useState<number | null>(null);
   const [turnCopies, setTurnCopies] = useState(false);
+  // Fillet and chamfer: the size, which corners, and how sharp a bend has to be to count as a corner.
+  const [cornerSize, setCornerSize] = useState(DEFAULT_CORNER_SIZE_MM);
+  const [cornerWhich, setCornerWhich] = useState<CornerWhich>('all');
+  const [minTurn, setMinTurn] = useState(DEFAULT_MIN_TURN_DEG);
+  const [keepCornerOriginal, setKeepCornerOriginal] = useState(true);
+  // How many corners the settings find in the selection: worked out again only when they, or the artwork, change.
+  const cornerFound = useMemo(() => {
+    if (!active || !project) return null;
+    const plan = planCorners(project.objects, selected);
+    let found = 0;
+    let shapes = 0;
+    if (plan.ok && Number.isFinite(minTurn) && minTurn >= MIN_TURN_DEG && minTurn <= MAX_TURN_DEG) {
+      for (const item of plan.items) {
+        const n = findCorners(item.paths, { minTurnDeg: minTurn, which: cornerWhich });
+        if (n > 0) {
+          found += n;
+          shapes += 1;
+        }
+      }
+    }
+    return { plan, found, shapes };
+  }, [active, project, selected, minTurn, cornerWhich]);
   // Every hook is above this line: the panel draws nothing while another tab is showing, and keeps its settings.
   if (!active || !project) return null;
 
@@ -69,6 +110,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const baseId = chosenBase(choices, cutFrom);
   const canCombine = planBoolean(project.objects, selected, 'union', baseId).ok;
   const canOffset = planOffset(project.objects, selected).ok;
+  const cornerProblems = validateCornerOptions({ sizeMm: cornerSize, minTurnDeg: minTurn });
+  const canCorners = cornerFound !== null && cornerFound.plan.ok && cornerFound.found > 0 && cornerProblems.length === 0;
   const arrayOptions = {
     count,
     angleDeg: angle,
@@ -180,6 +223,57 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
     }
   };
 
+  const roundNow = (style: CornerStyle) => {
+    const problem = validateCornerOptions({ sizeMm: cornerSize, minTurnDeg: minTurn })[0];
+    if (problem) {
+      tell(false, problem);
+      return;
+    }
+    const plan = planCorners(project.objects, selected);
+    if (!plan.ok) {
+      tell(false, plan.message);
+      return;
+    }
+    const options = { style, sizeMm: cornerSize, minTurnDeg: minTurn, which: cornerWhich };
+    let z = useProjectStore.getState().nextZIndex();
+    const made: WorkspaceObject[] = [];
+    const replaced = new Set<string>();
+    const untouched: string[] = [];
+    const totals = { shapes: 0, changed: 0, reduced: 0, skipped: 0 };
+    for (const item of plan.items) {
+      const result = roundCorners(item.paths, options);
+      const object =
+        result.changed > 0 ? resultObject(result.paths, { name: cornersName(item.name, style, cornerSize), layerId: item.layerId, zIndex: z }) : null;
+      if (!object) {
+        untouched.push(item.name);
+        continue;
+      }
+      z += 1;
+      made.push(object);
+      totals.shapes += 1;
+      totals.changed += result.changed;
+      totals.reduced += result.reduced;
+      totals.skipped += result.skipped;
+      // The original is only replaced when asked, and never when it is locked or has open lines (they would be lost).
+      if (!keepCornerOriginal && !item.locked && !item.hasLoose) replaced.add(item.id);
+    }
+    if (made.length === 0) {
+      tell(false, noCornersMessage({ minTurnDeg: minTurn, which: cornerWhich }));
+      return;
+    }
+    mutate((p) => {
+      if (replaced.size > 0) p.objects = p.objects.filter((o) => !replaced.has(o.id));
+      p.objects.push(...made);
+    });
+    setSelection(made.map((o) => o.id));
+    const names = (list: readonly string[]) => list.map((n) => `"${n}"`).join(', ');
+    const notes: string[] = [];
+    if (untouched.length > 0) notes.push(`${names(untouched)} had no corner to change.`);
+    if (plan.skipped.length > 0) notes.push(`${names(plan.skipped)} left out (not a closed shape).`);
+    if (plan.tooDetailed.length > 0) notes.push(`${names(plan.tooDetailed)} left out (too much detail).`);
+    if (!keepCornerOriginal && made.length > replaced.size) notes.push('Locked shapes and shapes with open lines were kept.');
+    tell(true, [cornersSummary(style, totals), ...notes].join(' '));
+  };
   const makeArray = () => {
     const plan = planCircularArray(project.objects, selected, arrayOptions, bed);
     const problem = plan.errors[0];
@@ -274,6 +368,42 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
         </PanelTick>
       </PanelGroup>
 
+      <PanelGroup title="Fillet and chamfer">
+        <div style={twoColumns}>
+          <PanelField label="Size (mm)" title="A fillet's radius, or how far a chamfer cuts along each of the two edges. Where the edges next to a corner are too short, that corner is made smaller.">
+            <NumberField value={cornerSize} min={0.01} max={MAX_CORNER_MM} title="Fillet radius, or chamfer length along each edge" onCommit={setCornerSize} />
+          </PanelField>
+          <PanelField
+            label="Skip bends gentler than (°)"
+            title="Only corners that turn the outline by at least this many degrees are changed. A square corner turns it by 90, a point on a smooth curve by a few, so the curves of circles and rounded shapes are left alone."
+          >
+            <NumberField value={minTurn} min={MIN_TURN_DEG} max={MAX_TURN_DEG} title="The least a corner must turn the outline, in degrees" onCommit={setMinTurn} />
+          </PanelField>
+        </div>
+        <PanelField label="Which corners" title="Outside corners stick out; inside corners are notches. Holes are worked out from which outline is inside which.">
+          <select value={cornerWhich} onChange={(e) => setCornerWhich(e.target.value as CornerWhich)} style={fullWidth}>
+            {CORNER_WHICH.map((w) => (
+              <option key={w} value={w}>
+                {CORNER_WHICH_LABELS[w]}
+              </option>
+            ))}
+          </select>
+        </PanelField>
+        <p className="hint" style={hintStyle}>
+          {cornerProblems[0] ?? (cornerFound ? cornersHint(cornerFound.plan, cornerFound.found, cornerFound.shapes, { minTurnDeg: minTurn, which: cornerWhich }) : '')}
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+          <button disabled={!canCorners} title="Round the corners: each becomes an arc of the radius in Size." style={fullWidth} onClick={() => roundNow('round')}>
+            Fillet
+          </button>
+          <button disabled={!canCorners} title="Cut the corners off: each is cut Size along both of its edges." style={fullWidth} onClick={() => roundNow('chamfer')}>
+            Chamfer
+          </button>
+        </div>
+        <PanelTick checked={keepCornerOriginal} onChange={setKeepCornerOriginal} title="Leave the shape you started from where it is">
+          Keep the original
+        </PanelTick>
+      </PanelGroup>
       <PanelGroup title="Circular array">
         <div style={twoColumns}>
           <PanelField label="Pieces" title="Pieces in the pattern, the original included">

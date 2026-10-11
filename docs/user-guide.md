@@ -62,6 +62,17 @@ Each action works on the selection, is one **Ctrl+Z** step, and reports under th
   **Border only** to get a frame instead (the band between the old outline and the new one, with the middle
   empty). Use it for borders, inlays and clearances. It is separate from the **Kerf** setting of a Cut layer, which is
   applied when the job is generated.
+* **Fillet and chamfer** round or cut off the corners of every selected closed shape, on the same layer.
+  **Size** is a fillet's radius, or how far a chamfer cuts along each of the two edges. **Which corners**
+  picks all of them, only the ones sticking out, or only the notches (inside corners); holes are worked out
+  from which outline is inside which, so a hole drawn the same way round as its outline still counts as a
+  hole. **Skip bends gentler than** (30° to start with) is how sharp a bend must be to count as a corner: a
+  square corner turns the outline by 90°, a point on a smooth curve by a few degrees, so circles and rounded
+  shapes are left alone. The line under the settings says how many corners they find. Where the edges
+  next to a corner are too short for the size you typed, that corner is made smaller rather than overlapping
+  its neighbour, and the message says how many. The result is a plain outline (a rectangle loses its
+  **Radius** box, so to round a rectangle and keep it editable use that box instead); **Keep the original**
+  leaves the shape where it is. A large size can run into a nearby part of the same shape: look at the result.
 * **Circular array** repeats the selection round a centre point: **Pieces** (the original included),
   **Angle** (360 is a full circle; less runs from the first piece to the last), **Centre X** and **Y**
   (the middle of the bed to start with) and **Turn the copies**. The copies go clockwise. The line under
