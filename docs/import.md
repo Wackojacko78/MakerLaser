@@ -61,6 +61,32 @@ Block names are not case sensitive. Skipped, with a warning: an `INSERT` of a bl
 file, a block that contains itself (directly or through another block), and a scale of zero. A block's
 text and attributes are not imported (they get the usual warning).
 
+## Trace a picture
+
+**Trace…** (in the toolbar) turns a picture (PNG, JPG, JPEG or BMP) into outlines, so it can be cut, scored or
+engraved as a fill, and combined or offset with Shape tools. Select one picture and open the window: a preview
+shows the outlines over the picture and follows every setting as you change it. The window stays open, whatever
+is selected, until you close it with **×**, and it keeps its settings.
+
+* **Threshold** (0 to 255): greys darker than this are traced. A pixel exactly at the threshold is not. Raise it
+  to trace more of the picture, lower it to trace less. **Invert** traces the light parts instead, for a light
+  logo on a dark background. A transparent background counts as white, so it is never traced.
+* **Smoothing** (0 to 10): blurs the picture a little before it is traced, which rounds corners and takes the
+  steps out of a small or low-resolution picture. It is measured in the picture's own pixels, so a small picture
+  is smoothed more than a big one. 0 is none.
+* **Ignore specks** (mm²): outlines that enclose less than this area are left out, and so are holes that small.
+  **Simplify** (mm): takes points off the outlines while keeping them within this distance of the traced line.
+
+**Make outlines** adds the outlines as one new object, on the layer you choose (a Score layer to start with: it
+marks without cutting through). The object lies exactly over the picture, with the same size, position and
+rotation, and is one **Ctrl+Z** step. **Afterwards** hides the picture (the default; show it again with the eye
+in the Objects list), leaves it, or deletes it. A locked picture is never changed.
+
+The outlines are plain straight-sided paths. Pictures are traced at between 800 and 1,400 pixels along the
+longest side (a small picture is enlarged first, a big one shrunk), and one trace makes at most 50,000 outlines
+and 300,000 points. A photograph at full detail makes far more than that, so trace line art, logos and
+high-contrast pictures, and engrave photographs on an Image layer instead.
+
 ## Limits
 
 - **Copies are capped** so a damaged or hostile file cannot fill the computer. One import places at

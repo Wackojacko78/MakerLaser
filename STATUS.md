@@ -312,3 +312,52 @@ Changes after trying the shape tools in the app (still on branch `shape-tools`, 
   no overflow, short window). The app's Konva canvas, the toolbar button and the real geometry commands were not part of
   that test. 50 unit tests (`shapeOps`, `selectionKeys`) passed in a stand-in runner, not the project's own.
 - Not done: remembering the window's position between sessions; Esc does not close it (Esc clears the selection).
+
+## Update 2026-10-11 (step 4): bitmap trace. This replaces "Next task: step 4" above.
+
+Done on branch `bitmap-trace` (merge to main once the checks pass and it has been tried in the app):
+
+- **Trace window** (`apps/desktop-ui/src/components/TracePanel.tsx`): "Trace…" in the toolbar. Select one picture (PNG, JPG, BMP)
+  and a live preview shows the outlines over it. Settings: Threshold (a slider, 0 to 255), Invert, Smoothing (0 to 10),
+  Ignore specks (mm²) and Simplify (mm). "Make outlines" adds ONE new vector object, on the layer you choose (a Score layer by
+  default), placed exactly over the picture (it gets the picture's own transform, and its paths are in the picture's own
+  millimetres), in one undo step. "Afterwards" hides (default), keeps or deletes the picture; a locked picture is never touched.
+  The window stays open and keeps its settings, like Shape tools (`state/traceStore.ts`).
+- **No Rust, no new command, no Cargo change.** The picture is decoded by the browser (`lib/traceImage.ts`, a canvas) and traced
+  in TypeScript. This was chosen so it could be run and tested for real; the tracer is pure and unit-tested.
+- **The tracer** (`lib/bitmapTrace.ts`): blur (Smoothing) -> a number per pixel that is positive where there is ink, with a
+  border of "not ink" so outlines always close -> marching squares with interpolation between pixels (so edges are not
+  stair-stepped) -> drop outlines under the Ignore-specks area -> Ramer-Douglas-Peucker to the Simplify tolerance. Holes run the
+  opposite way to outlines; engraving a result as a fill uses even-odd, so holes work. Pictures are traced at 800 to 1400
+  pixels along the longest side: small ones are enlarged first (bilinear), big ones shrunk. Smoothing is measured in the
+  picture's OWN pixels (`blurScale`), so an enlarged small picture is blurred more; without that a 64 px icon kept its steps.
+  A transparent pixel counts as white. Marching squares cuts each corner by half a pixel, so with Simplify the corners of a
+  sharp-cornered logo are off by up to the tolerance. Outlines are straight-sided polylines (curves need the new path model
+  planned for node editing, step 6).
+- Limits: 50,000 outlines and 300,000 points per trace (`traceObject.ts`); the preview is only drawn up to 120,000 points; a
+  photograph at full detail makes far more, so Make is refused with the numbers and what to change. Photographs belong on an
+  Image layer.
+- New shared pieces: `components/FloatingWindow.tsx` (the draggable window and small layout helpers). Shape tools has its own
+  copy of the same code and was NOT changed; it could use FloatingWindow later.
+- `apps/desktop-ui/src/lib/textTrace.ts` already traces text into outlines. It was not in the bundle, so it was NOT reused: the
+  picture tracer is separate. They could be unified later.
+- Checked: 80 unit tests (`bitmapTrace`, `traceObject`) passed in a stand-in runner, not the project's own; and 50 checks of the
+  real window ran in headless Chromium with real PNG and JPEG files (preview, settings, Make, layer, hide/keep/delete, locked
+  picture, transparent PNG, a 3000 x 2000 JPEG, a 1000 x 1000 noise picture hitting the limit, close and reopen, side by side
+  with Shape tools). That used stand-ins for the project store, NumberField, `transform.ts` (including `imageSizeMm`) and the
+  Tauri call. NOT tried in the real app's webview, and the Konva canvas was not part of it.
+- Not done: tracing several pictures at once; a trace of only part of a picture; colour tracing; curve fitting; remembering the
+  window's position between sessions.
+
+**Next task: step 5, fillets and chamfers.** Per-corner picking needs node editing (step 6), so the plan is a window like Shape
+tools that rounds or chamfers the corners of the selected shapes by a radius, with an angle limit so only the sharp corners are
+touched. To make the bundle, run from the repo root with the `Bundle` function shown earlier in this file:
+
+    git grep -l -i -E "corner_radius|rounded|fillet|chamfer" -- '*.rs' '*.ts' '*.tsx' ':!*/tests/*'
+
+and add `apps/desktop-ui/src/lib/shapeOps.ts`, `apps/desktop-ui/src/lib/shapes.ts`, `apps/desktop-ui/src/lib/transform.ts`,
+`apps/desktop-ui/src/components/ShapeToolsPanel.tsx`, `apps/desktop-ui/src/components/FloatingWindow.tsx`,
+`apps/desktop-ui/src/components/TracePanel.tsx`, `apps/desktop-ui/src/components/Toolbar.tsx`, `apps/desktop-ui/src/App.tsx`,
+`apps/desktop-ui/src/lib/tauri.ts`, `apps/desktop-ui/src/types/domain.ts`, `packages/geometry/src/lib.rs`,
+`packages/geometry/src/shape_ops.rs`, `packages/geometry/src/bezier.rs`, `apps/rust-core/src/commands/geometry_cmds.rs`,
+`apps/rust-core/src/main.rs`, `docs/user-guide.md`, `docs/api.md` and `CHANGELOG.md`.

@@ -11,6 +11,7 @@ import { useJobStore } from '@/state/jobStore';
 import { previewOptions, usePreviewOptions } from '@/state/previewStore';
 import { useProjectStore } from '@/state/projectStore';
 import { useShapeToolsStore } from '@/state/shapeToolsStore';
+import { useTraceStore } from '@/state/traceStore';
 import { useViewStore } from '@/state/viewStore';
 import { MachineSettingsDialog } from '@/components/MachineSettingsDialog';
 import { TestGridDialog } from '@/components/TestGridDialog';
@@ -38,6 +39,8 @@ export function Toolbar() {
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const shapeToolsOpen = useShapeToolsStore((s) => s.open);
   const toggleShapeTools = useShapeToolsStore((s) => s.toggle);
+  const traceOpen = useTraceStore((s) => s.open);
+  const toggleTrace = useTraceStore((s) => s.toggle);
   const travel = usePreviewOptions();
 
   if (!project) return null;
@@ -74,6 +77,14 @@ export function Toolbar() {
           title="Combine, offset and repeat shapes. The window stays open while you change the selection."
         >
           Shape tools…
+        </button>
+        <button
+          className={traceOpen ? 'accent' : undefined}
+          aria-pressed={traceOpen}
+          onClick={toggleTrace}
+          title="Turn the selected picture into outlines you can cut, score or fill. The window stays open while you change the selection."
+        >
+          Trace…
         </button>
         <button onClick={() => setGridOpen(true)} title="Add a speed x power material test grid">Test grid…</button>
         <button onClick={() => setSettingsOpen(true)} title="Machine, bed size and view settings">Machine…</button>

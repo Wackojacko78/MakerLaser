@@ -76,7 +76,8 @@ Decided 11 October 2026. Each step is its own update, checked before the next.
 3. **Boolean, offset and arrays in the interface**, done: the Shape tools panel (docs/user-guide.md) has
    Union, Subtract, Intersect, Exclude, Offset and a circular array. Rows and columns were already in
    Arrange. Not done: a preview of the array drawn on the canvas.
-4. **Bitmap trace** to editable vector paths.
+4. **Bitmap trace**, done: select a picture and open Trace… (docs/import.md). The outlines are straight-sided
+   paths; editing their points is step 6, node editing.
 5. **Fillets and chamfers** on corners.
 6. **Node editing.** Needs paths that can hold curves (they are straight-segment lists today), which
    touches import, CAM, booleans and offset, so it is planned as its own project.

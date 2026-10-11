@@ -27,6 +27,9 @@
 - SVG `<use>` and `<symbol>`, and DXF `INSERT` (blocks, scaled, rotated, in arrays and nested), are
   placed instead of being skipped. Copies are capped so a damaged file cannot fill the computer.
   See docs/import.md.
+- Trace a picture: select a PNG, JPG or BMP and open Trace… in the toolbar for outlines you can cut, score or
+  fill, with a live preview, Threshold, Invert, Smoothing, Ignore specks and Simplify. The window stays open, like
+  Shape tools. See docs/import.md.
 
 **Laser settings and placement**
 - Overscan for fill and image layers: a laser-off run-up and run-out so each scan line is burned at
