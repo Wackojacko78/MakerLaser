@@ -64,9 +64,7 @@ text and attributes are not imported (they get the usual warning).
 ## Trace a picture
 
 **Trace…** (in the toolbar) turns a picture (PNG, JPG, JPEG or BMP) into outlines, so it can be cut, scored or
-engraved as a fill, and combined or offset with Shape tools. Select one picture and open the window: a preview
-shows the outlines over the picture and follows every setting as you change it. The window stays open, whatever
-is selected, until you close it with **×**, and it keeps its settings.
+engraved as a fill, and combined or offset with Shape tools. Select one picture and open the **Trace** tab of the right-hand panel: a preview shows the outlines over the picture and follows every setting as you change it. Scroll over the preview to zoom (up to 64 times), drag it to move, and double-click it to show all of it again; **1:1** shows one picture pixel for each screen pixel, and when each pixel is two or more screen pixels wide the picture is drawn as sharp squares, so you can check exactly what was traced. **Show the picture under the outlines** hides the picture so the outlines can be seen alone. The tab keeps its settings, and the zoom of the picture you were looking at, while you look at other tabs.
 
 * **Threshold** (0 to 255): greys darker than this are traced. A pixel exactly at the threshold is not. Raise it
   to trace more of the picture, lower it to trace less. **Invert** traces the light parts instead, for a light

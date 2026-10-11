@@ -9,10 +9,10 @@ and the first real burns on scrap.
 
 | Where | What is there |
 |---|---|
-| Top bar | **New, Open, Save, Save as**, **Import**, **Undo, Redo, Duplicate, Delete**, **Fit**, **Arrange…**, **Test grid…**, **Machine…**, the project name, and on the right **Preview**, **Travel** and **Generate & Preview** |
+| Top bar | **New, Open, Save, Save as**, **Import**, **Undo, Redo, Duplicate, Delete**, **Fit**, **Arrange…**, **Shape tools…**, **Trace…**, **Test grid…**, **Machine…**, the project name, and on the right **Preview**, **Travel** and **Generate & Preview** |
 | Left strip (Tools) | **Select**, **Measure**, the drawing tools (**Rectangle, Ellipse, Polygon, Star, Text**) and **Import** |
 | Middle | The canvas: the machine bed, the grid, your artwork. Mouse wheel zooms, middle-drag pans |
-| Right panels | **Properties** (position, size, and the settings of the selected shape or text), **Layers**, **Material library**. Drag the thin line beside them to resize; double-click it to reset |
+| Right panels | Three tabs along the top. **Properties** (position, size, and the settings of the selected shape or text, then **Layers** and the **Material library**), **Shape tools** and **Trace**. Drag the thin line beside them to resize; double-click it to reset |
 | Bottom | The machine console: **Connection**, **Move**, **Job** and **Replay**, with a **Console** tab and a **G-code** tab. Drag its top edge to resize |
 
 Everything is in millimetres unless the project is set to inches (Machine…). The origin of the
@@ -44,9 +44,7 @@ origin decides which way the job is mirrored. The same window has **Job placemen
 
 Move, resize and rotate with the mouse or by typing numbers in **Properties**. **Ctrl+Z** undoes.
 
-**Combine, offset and repeat.** Select the shapes (Shift-click or Ctrl-click adds to the selection), then click **Shape tools…** in the toolbar.
-The window stays open, whatever is selected, until you close it with **×**. Drag its title bar to move it;
-double-click the title bar to put it back.
+**Combine, offset and repeat.** Select the shapes (Shift-click or Ctrl-click adds to the selection), then click **Shape tools…** in the toolbar, or the **Shape tools** tab at the top of the right-hand panel. The tab stays as it is while you change the selection, and keeps its settings while you look at another tab.
 Each action works on the selection, is one **Ctrl+Z** step, and reports under the buttons.
 
 * **Union, Subtract, Intersect, Exclude** combine two or more closed shapes (rectangles, ellipses, text,

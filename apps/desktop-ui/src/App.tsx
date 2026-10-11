@@ -1,13 +1,9 @@
 import { useEffect } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { WorkspaceCanvas } from '@/canvas/WorkspaceCanvas';
-import { LayersPanel } from '@/components/LayersPanel';
 import { MachineConsole } from '@/components/MachineConsole';
 import { CloseGuard } from '@/components/CloseGuard';
-import { MaterialsPanel } from '@/components/MaterialsPanel';
-import { PropertiesPanel } from '@/components/PropertiesPanel';
-import { ShapeToolsPanel } from '@/components/ShapeToolsPanel';
-import { TracePanel } from '@/components/TracePanel';
+import { RightTabs } from '@/components/RightTabs';
 import { ToolsPanel } from '@/components/ToolsPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { errorMessage } from '@/lib/format';
@@ -108,15 +104,11 @@ export default function App() {
         <ToolsPanel />
         <WorkspaceCanvas />
         <aside className="right">
-          <PropertiesPanel />
-          <LayersPanel />
-          <MaterialsPanel />
+          <RightTabs />
         </aside>
       </div>
       <MachineConsole />
       <CloseGuard />
-      <ShapeToolsPanel />
-      <TracePanel />
       {notice && (
         <div className={`notice ${notice.kind}`} role="status" onClick={dismiss}>
           {notice.text}

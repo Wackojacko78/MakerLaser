@@ -303,7 +303,7 @@ Changes after trying the shape tools in the app (still on branch `shape-tools`, 
   selected, so the section vanished (and lost its settings) whenever the selection changed. Now: a "Shape tools…" button
   in the toolbar opens it and the x in its title bar closes it; in between it stays up whatever is selected and works on
   the current selection. `ShapeToolsPanel` is mounted once in `App.tsx` and draws nothing while closed, so its settings
-  are kept; the open flag is `state/shapeToolsStore.ts`. Drag the title bar to move it; double-click the title bar to put
+  are kept; the open flag is state/shapeToolsStore.ts. Drag the title bar to move it; double-click the title bar to put
   it back (the position is CSS-clamped so it stays on screen). It sits beside the right-hand panel by default.
   The message under the buttons belongs to the selection it was about and hides when something else is selected
   (`selectionKey`).
@@ -322,7 +322,7 @@ Done on branch `bitmap-trace` (merge to main once the checks pass and it has bee
   Ignore specks (mm²) and Simplify (mm). "Make outlines" adds ONE new vector object, on the layer you choose (a Score layer by
   default), placed exactly over the picture (it gets the picture's own transform, and its paths are in the picture's own
   millimetres), in one undo step. "Afterwards" hides (default), keeps or deletes the picture; a locked picture is never touched.
-  The window stays open and keeps its settings, like Shape tools (`state/traceStore.ts`).
+  The window stays open and keeps its settings, like Shape tools (state/traceStore.ts).
 - **No Rust, no new command, no Cargo change.** The picture is decoded by the browser (`lib/traceImage.ts`, a canvas) and traced
   in TypeScript. This was chosen so it could be run and tested for real; the tracer is pure and unit-tested.
 - **The tracer** (`lib/bitmapTrace.ts`): blur (Smoothing) -> a number per pixel that is positive where there is ink, with a
@@ -337,7 +337,7 @@ Done on branch `bitmap-trace` (merge to main once the checks pass and it has bee
 - Limits: 50,000 outlines and 300,000 points per trace (`traceObject.ts`); the preview is only drawn up to 120,000 points; a
   photograph at full detail makes far more, so Make is refused with the numbers and what to change. Photographs belong on an
   Image layer.
-- New shared pieces: `components/FloatingWindow.tsx` (the draggable window and small layout helpers). Shape tools has its own
+- New shared pieces: components/FloatingWindow.tsx (the draggable window and small layout helpers). Shape tools has its own
   copy of the same code and was NOT changed; it could use FloatingWindow later.
 - `apps/desktop-ui/src/lib/textTrace.ts` already traces text into outlines. It was not in the bundle, so it was NOT reused: the
   picture tracer is separate. They could be unified later.
@@ -356,8 +356,44 @@ touched. To make the bundle, run from the repo root with the `Bundle` function s
     git grep -l -i -E "corner_radius|rounded|fillet|chamfer" -- '*.rs' '*.ts' '*.tsx' ':!*/tests/*'
 
 and add `apps/desktop-ui/src/lib/shapeOps.ts`, `apps/desktop-ui/src/lib/shapes.ts`, `apps/desktop-ui/src/lib/transform.ts`,
-`apps/desktop-ui/src/components/ShapeToolsPanel.tsx`, `apps/desktop-ui/src/components/FloatingWindow.tsx`,
+`apps/desktop-ui/src/components/ShapeToolsPanel.tsx`, `apps/desktop-ui/src/components/PanelParts.tsx`, `apps/desktop-ui/src/components/RightTabs.tsx`,
 `apps/desktop-ui/src/components/TracePanel.tsx`, `apps/desktop-ui/src/components/Toolbar.tsx`, `apps/desktop-ui/src/App.tsx`,
 `apps/desktop-ui/src/lib/tauri.ts`, `apps/desktop-ui/src/types/domain.ts`, `packages/geometry/src/lib.rs`,
 `packages/geometry/src/shape_ops.rs`, `packages/geometry/src/bezier.rs`, `apps/rust-core/src/commands/geometry_cmds.rs`,
 `apps/rust-core/src/main.rs`, `docs/user-guide.md`, `docs/api.md` and `CHANGELOG.md`.
+
+## Update 2026-10-11 (right-hand tabs): Shape tools and Trace are tabs; the Trace preview zooms.
+
+State first: the Trace window update and the Ctrl / Shape tools window update were already on `main` (the `bitmap-trace`
+branch no longer exists). This update is on branch `right-tabs` (merge to main once the checks pass and it has been tried in the app):
+
+- **The right-hand panel has tabs** (`apps/desktop-ui/src/components/RightTabs.tsx`): **Properties** (the selection and
+  objects, then Layers and the Material library, exactly as before), **Shape tools** and **Trace**. The tab bar stays at the
+  top while the panel scrolls. Left and right arrows, Home and End move between tabs (they call `stopPropagation`, so the
+  arrow keys do not also nudge the artwork through the app-wide shortcuts). The toolbar buttons "Shape tools…" and "Trace…"
+  switch to their tab, and back to Properties when pressed again (`state/rightTabStore.ts`, pure logic in `lib/rightTabs.ts`).
+  The panels of tabs that are not showing stay mounted and are hidden (`hidden`), so what you typed in them is kept; Shape tools
+  and Trace take an `active` prop and draw nothing, decode nothing and trace nothing while another tab is showing.
+- `ShapeToolsPanel.tsx` and `TracePanel.tsx` are no longer floating windows: no title bar, no dragging. Their layout pieces moved
+  to `components/PanelParts.tsx` (`PanelGroup`, `PanelField`, `PanelTick`, `PanelSlider`). **Removed:** FloatingWindow.tsx,
+  state/shapeToolsStore.ts, state/traceStore.ts (the script only deletes a file when nothing imports it any more).
+- **Zoomable Trace preview** (`components/ZoomPreview.tsx`, maths in `lib/previewView.ts`): the mouse wheel zooms towards the
+  pointer (1x to 64x), dragging moves the picture, double-click shows all of it, and + − Fit 1:1 buttons do the same; a readout
+  shows the real size on screen (100% = one picture pixel per screen pixel). The picture under the outlines is now the picture
+  at the size it was traced (`previewUrl` in `lib/traceImage.ts`; it was a 360 px thumbnail, which would have gone blurry), and is
+  drawn as sharp squares once each pixel is 2 or more screen pixels wide, so you can see exactly which pixels were traced. A
+  "Show the picture under the outlines" tick hides the picture. The zoom is kept per picture (one at a time) and survives a
+  visit to another tab; a different picture starts zoomed out. The wheel is a real non-passive listener, because React's own
+  wheel handler cannot stop the panel behind from scrolling. The point under the pointer is worked out from the newest view
+  (`pictureAt`), not from what is drawn, so a fast spin of the wheel does not drift.
+- A wider panel gives a bigger preview (drag the line beside the panel); the preview is at most 320 px high.
+- Checked: 43 unit tests (`previewView`, `rightTabs`) in a stand-in runner, not the project's own; and 65 checks in headless
+  Chromium with real React, the real tab bar, preview and both converted panels, real PNG files, real wheel and mouse input
+  (tabs, hidden panels keep their state, nothing is read while Trace is hidden, keyboard, sticky tab bar, no sideways overflow at
+  300 and 360 px, zoom, pan, clamp, 1:1, pixel rendering, zoom kept per picture). Seven deliberate breakages were each caught.
+  Stand-ins were used for the project store, `NumberField`'s helpers, the Tauri call, the Shape tools LOGIC (`shapeOps.ts`:
+  unchanged by this update and tested before) and the three existing panels. **NOT tried in the real app**, and the Konva
+  canvas was not part of it.
+- Not done: remembering the selected tab or the zoom between sessions; splitting Layers into its own tab (the tab list is one
+  array in `lib/rightTabs.ts`, so adding a tab is a few lines); Arrange and Test grid are still pop-up dialogs.
+

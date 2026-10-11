@@ -12,7 +12,7 @@
   panel. What they were made from is saved with the project.
 - 35 built-in fonts and a grouped font list; more of the fonts installed on the computer are
   found, and text waits for a font to load before it is drawn. See docs/fonts.md.
-- Shape tools (a window opened from the toolbar): Union, Subtract, Intersect and Exclude of closed shapes; Offset
+- Shape tools (a tab in the right-hand panel): Union, Subtract, Intersect and Exclude of closed shapes; Offset
   outward or inward with sharp or round corners (holes move the other way); and a circular array.
   Each is one undo step and reports under its buttons, with no pop-up windows. See docs/user-guide.md.
 - Shape tools: a "Subtract from" list chooses which shape the others are cut out of, Offset can make a
@@ -20,16 +20,14 @@
   narrow Properties column.
 - Ctrl (Cmd on a Mac) now works like Shift for adding to the selection: clicking on the canvas, clicking in
   the Objects list, and box select.
-- Shape tools is a window you open from the toolbar (Shape tools…) and it stays open, whatever is selected,
-  until you close it. Drag its title bar to move it. Its settings are kept while it is closed.
+- The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.
 
 **Import**
 - SVG `<use>` and `<symbol>`, and DXF `INSERT` (blocks, scaled, rotated, in arrays and nested), are
   placed instead of being skipped. Copies are capped so a damaged file cannot fill the computer.
   See docs/import.md.
 - Trace a picture: select a PNG, JPG or BMP and open Trace… in the toolbar for outlines you can cut, score or
-  fill, with a live preview, Threshold, Invert, Smoothing, Ignore specks and Simplify. The window stays open, like
-  Shape tools. See docs/import.md.
+  fill, with a live preview, Threshold, Invert, Smoothing, Ignore specks and Simplify. It is a tab in the right-hand panel, like Shape tools, and its preview can be zoomed and moved to check small areas. See docs/import.md.
 
 **Laser settings and placement**
 - Overscan for fill and image layers: a laser-off run-up and run-out so each scan line is burned at

@@ -10,8 +10,7 @@ import {
 import { useJobStore } from '@/state/jobStore';
 import { previewOptions, usePreviewOptions } from '@/state/previewStore';
 import { useProjectStore } from '@/state/projectStore';
-import { useShapeToolsStore } from '@/state/shapeToolsStore';
-import { useTraceStore } from '@/state/traceStore';
+import { useRightTabStore } from '@/state/rightTabStore';
 import { useViewStore } from '@/state/viewStore';
 import { MachineSettingsDialog } from '@/components/MachineSettingsDialog';
 import { TestGridDialog } from '@/components/TestGridDialog';
@@ -37,10 +36,10 @@ export function Toolbar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
-  const shapeToolsOpen = useShapeToolsStore((s) => s.open);
-  const toggleShapeTools = useShapeToolsStore((s) => s.toggle);
-  const traceOpen = useTraceStore((s) => s.open);
-  const toggleTrace = useTraceStore((s) => s.toggle);
+  const rightTab = useRightTabStore((s) => s.tab);
+  const toggleRightTab = useRightTabStore((s) => s.toggle);
+  const shapeToolsOpen = rightTab === 'shape';
+  const traceOpen = rightTab === 'trace';
   const travel = usePreviewOptions();
 
   if (!project) return null;
@@ -73,16 +72,16 @@ export function Toolbar() {
         <button
           className={shapeToolsOpen ? 'accent' : undefined}
           aria-pressed={shapeToolsOpen}
-          onClick={toggleShapeTools}
-          title="Combine, offset and repeat shapes. The window stays open while you change the selection."
+          onClick={() => toggleRightTab('shape')}
+          title="Combine, offset and repeat shapes. Opens the Shape tools tab in the right-hand panel."
         >
           Shape tools…
         </button>
         <button
           className={traceOpen ? 'accent' : undefined}
           aria-pressed={traceOpen}
-          onClick={toggleTrace}
-          title="Turn the selected picture into outlines you can cut, score or fill. The window stays open while you change the selection."
+          onClick={() => toggleRightTab('trace')}
+          title="Turn the selected picture into outlines you can cut, score or fill. Opens the Trace tab in the right-hand panel."
         >
           Trace…
         </button>

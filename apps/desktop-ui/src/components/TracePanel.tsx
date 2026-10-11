@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FloatingWindow, WindowField, WindowGroup, WindowSlider, WindowTick, fullWidth, hintStyle, twoColumns } from '@/components/FloatingWindow';
 import { NumberField } from '@/components/NumberField';
+import { PanelField, PanelGroup, PanelSlider, PanelTick, fullWidth, hintStyle, twoColumns } from '@/components/PanelParts';
+import { ZoomPreview } from '@/components/ZoomPreview';
 import { MAX_SMOOTHING, pathsToSvgData, traceGray, traceStats, type TraceOptions } from '@/lib/bitmapTrace';
+import { fitView, type PreviewView } from '@/lib/previewView';
 import { selectionKey } from '@/lib/selectionKeys';
 import { failure } from '@/lib/shapeOps';
 import { loadPicture, type LoadedPicture } from '@/lib/traceImage';
@@ -26,26 +28,24 @@ import {
 } from '@/lib/traceObject';
 import { imageSizeMm } from '@/lib/transform';
 import { useProjectStore } from '@/state/projectStore';
-import { useTraceStore } from '@/state/traceStore';
 import type { Path2D } from '@/types/domain';
 
 /** What the window says after an action: green when it worked, red when it did not. It belongs to the selection it was about. */
 type Say = { ok: boolean; text: string; key: string } | null;
 
 /**
- * Trace: turns the selected picture into outlines (vector paths) you can cut, score or engrave as a
- * fill, and combine or offset with Shape tools. It is a window you bring up from the toolbar
- * ("Trace...") and it stays up, whatever is selected, until you close it. A preview shows the
- * outlines over the picture and follows every setting as you change it; "Make outlines" adds them as
- * one new object, placed exactly over the picture, in one undo step.
+ * Trace: turns the selected picture into outlines (vector paths) you can cut, score or engrave as a fill, and
+ * combine or offset with Shape tools. It is the "Trace" tab of the right-hand panel (RightTabs.tsx), also
+ * opened by the toolbar button "Trace…". A preview shows the outlines over the picture and follows every
+ * setting as you change it; you can zoom and move it to check small areas (ZoomPreview.tsx). "Make outlines"
+ * adds them as one new object, placed exactly over the picture, in one undo step.
  *
- * It is mounted once, in App.tsx, and draws nothing while it is closed, so its settings are kept. The
- * tracing is in lib/bitmapTrace.ts, the planning in lib/traceObject.ts and the picture decoding in
- * lib/traceImage.ts. It runs in the window, not in Rust, so it needs no new command.
+ * It stays mounted when another tab is showing and draws nothing, so its settings are kept; while it is not
+ * showing it decodes and traces nothing. The tracing is in lib/bitmapTrace.ts, the planning in
+ * lib/traceObject.ts and the picture decoding in lib/traceImage.ts. It runs in the window, not in Rust, so it
+ * needs no new command.
  */
-export function TracePanel() {
-  const open = useTraceStore((s) => s.open);
-  const setOpen = useTraceStore((s) => s.setOpen);
+export function TracePanel({ active }: { active: boolean }) {
   const project = useProjectStore((s) => s.project);
   const selected = useProjectStore((s) => s.selected);
   const mutate = useProjectStore((s) => s.mutate);
@@ -57,11 +57,14 @@ export function TracePanel() {
   const [loadFailed, setLoadFailed] = useState<{ assetId: string; text: string } | null>(null);
   const [traced, setTraced] = useState<{ key: string; paths: Path2D[] } | null>(null);
   const [say, setSay] = useState<Say>(null);
+  const [showPicture, setShowPicture] = useState(true);
+  // How far the preview is zoomed, for the picture that was last zoomed. Kept while another tab is showing.
+  const [zoom, setZoom] = useState<{ assetId: string; view: PreviewView } | null>(null);
 
-  const plan = open && project ? planTrace(project.objects, selected) : null;
+  const plan = active && project ? planTrace(project.objects, selected) : null;
   const assetId = plan && plan.ok ? plan.picture.asset_id : null;
 
-  // Decode the picture when one is selected (and the window is open).
+  // Decode the picture when one is selected (and this tab is showing).
   useEffect(() => {
     if (!assetId) return;
     let cancelled = false;
@@ -91,21 +94,21 @@ export function TracePanel() {
     latest.current = { picture, options };
   });
   useEffect(() => {
-    if (!open || traceKey === null) return;
+    if (!active || traceKey === null) return;
     const timer = setTimeout(() => {
       const { picture: p, options: o } = latest.current;
       if (p && o) setTraced({ key: traceKey, paths: traceGray(p.gray, p.width, p.height, o) });
     }, 120);
     return () => clearTimeout(timer);
-  }, [open, traceKey]);
+  }, [active, traceKey]);
 
   const fresh = traced && traceKey !== null && traced.key === traceKey ? traced : null;
   const stats = fresh ? traceStats(fresh.paths) : null;
   const tooMuchToDraw = stats !== null && stats.points > MAX_PREVIEW_POINTS;
   const previewPath = useMemo(() => (fresh && !tooMuchToDraw ? pathsToSvgData(fresh.paths) : ''), [fresh, tooMuchToDraw]);
 
-  // Every hook is above this line: the window can be closed without losing its settings.
-  if (!open || !project) return null;
+  // Every hook is above this line: the panel draws nothing while another tab is showing, and keeps its settings.
+  if (!active || !project) return null;
 
   const choices = traceLayerChoices(project.layers);
   const layerId = chosenTraceLayer(choices, layerPick);
@@ -171,11 +174,15 @@ export function TracePanel() {
     tell(true, `Made ${paths.length} ${paths.length === 1 ? 'outline' : 'outlines'} on the layer "${layerName}".${note}`);
   };
 
-  const status = plan && plan.ok ? plan.object.name : 'no picture selected';
+  const pictureName = plan && plan.ok ? plan.object.name : null;
 
   return (
-    <FloatingWindow title="Trace picture" status={status} onClose={() => setOpen(false)} rightExtra={344}>
-      <WindowGroup title="Preview" first>
+    <section className="panel" aria-label="Trace picture" style={{ minWidth: 0 }}>
+      <h3>Trace picture</h3>
+      <p className="hint" style={{ ...hintStyle, marginBottom: 8 }}>
+        {pictureName ? `Picture: ${pictureName}.` : 'No picture is selected.'} Select one picture to trace it. A wider panel (drag the line beside it) makes a bigger preview.
+      </p>
+      <PanelGroup title="Preview" first>
         {plan && !plan.ok && (
           <p className="hint" style={hintStyle}>
             {plan.message}
@@ -193,25 +200,33 @@ export function TracePanel() {
         )}
         {picture && (
           <>
-            <svg
-              role="img"
-              aria-label="Preview of the outlines over the picture"
-              viewBox={`0 0 ${picture.width} ${picture.height}`}
-              preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', width: '100%', maxHeight: 220, aspectRatio: `${picture.width} / ${picture.height}`, background: '#070d12', borderRadius: 6, opacity: fresh ? 1 : 0.6 }}
-            >
-              <image href={picture.thumbUrl} x={0} y={0} width={picture.width} height={picture.height} preserveAspectRatio="none" opacity={0.4} />
-              <path d={previewPath} fill="rgba(54, 216, 237, 0.2)" fillRule="evenodd" stroke="#36d8ed" strokeWidth={1.3} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-            </svg>
+            <ZoomPreview
+              width={picture.width}
+              height={picture.height}
+              view={zoom && zoom.assetId === assetId ? zoom.view : fitView(picture.width, picture.height)}
+              onViewChange={(view) => {
+                if (assetId) setZoom({ assetId, view });
+              }}
+              imageUrl={picture.previewUrl}
+              pathData={previewPath}
+              showPicture={showPicture}
+              stale={!fresh}
+            />
+            <p className="hint" style={hintStyle}>
+              Scroll to zoom, drag to move, double-click to show all of it.
+            </p>
+            <PanelTick checked={showPicture} onChange={setShowPicture} title="Draw the picture under the outlines. Turn it off to see the outlines alone.">
+              Show the picture under the outlines
+            </PanelTick>
             <p className="hint" role="status" style={hintStyle}>
               {problems[0] ?? (fresh && scale ? (tooMuchToDraw ? `${traceSummary(fresh.paths, scale)} Too much detail to draw: raise Ignore specks or Simplify.` : traceSummary(fresh.paths, scale)) : 'Tracing…')}
             </p>
           </>
         )}
-      </WindowGroup>
+      </PanelGroup>
 
-      <WindowGroup title="Settings">
-        <WindowSlider
+      <PanelGroup title="Settings">
+        <PanelSlider
           label="Threshold"
           title="Greys darker than this are traced. Raise it to trace more of the picture, lower it to trace less."
           value={settings.threshold}
@@ -219,10 +234,10 @@ export function TracePanel() {
           max={255}
           onChange={(v) => set('threshold', v)}
         />
-        <WindowTick checked={settings.invert} onChange={(v) => set('invert', v)} title="Trace the light parts of the picture instead of the dark parts (for a light logo on a dark background)">
+        <PanelTick checked={settings.invert} onChange={(v) => set('invert', v)} title="Trace the light parts of the picture instead of the dark parts (for a light logo on a dark background)">
           Invert (trace the light parts)
-        </WindowTick>
-        <WindowSlider
+        </PanelTick>
+        <PanelSlider
           label="Smoothing"
           title="Blurs the picture a little before it is traced, which rounds corners and takes the steps out of a small or low-resolution picture. It is measured in the picture's own pixels, so a smaller picture is smoothed more. 0 is none."
           value={settings.smoothing}
@@ -231,17 +246,17 @@ export function TracePanel() {
           onChange={(v) => set('smoothing', v)}
         />
         <div style={twoColumns}>
-          <WindowField label="Ignore specks (mm²)" title="Outlines that enclose less than this area are left out, and so are holes that small. 0 keeps everything.">
+          <PanelField label="Ignore specks (mm²)" title="Outlines that enclose less than this area are left out, and so are holes that small. 0 keeps everything.">
             <NumberField value={settings.ignoreSpecksMm2} min={0} max={MAX_SPECKS_MM2} title="Outlines smaller than this area are left out" onCommit={(v) => set('ignoreSpecksMm2', v)} />
-          </WindowField>
-          <WindowField label="Simplify (mm)" title="Takes points off the outlines while keeping them within this distance of the traced line. 0 keeps every point.">
+          </PanelField>
+          <PanelField label="Simplify (mm)" title="Takes points off the outlines while keeping them within this distance of the traced line. 0 keeps every point.">
             <NumberField value={settings.simplifyMm} min={0} max={MAX_SIMPLIFY_MM} title="How far the simplified outline may stray" onCommit={(v) => set('simplifyMm', v)} />
-          </WindowField>
+          </PanelField>
         </div>
-      </WindowGroup>
+      </PanelGroup>
 
-      <WindowGroup title="Make outlines">
-        <WindowField label="Put the outlines on layer" title="Outlines are cut or scored, or engraved as a fill, on the layer you choose. A Score layer marks without cutting through.">
+      <PanelGroup title="Make outlines">
+        <PanelField label="Put the outlines on layer" title="Outlines are cut or scored, or engraved as a fill, on the layer you choose. A Score layer marks without cutting through.">
           <select value={layerId ?? ''} onChange={(e) => setLayerPick(e.target.value)} style={fullWidth} disabled={choices.length === 0}>
             {choices.length === 0 && <option value="">(no layer)</option>}
             {choices.map((c) => (
@@ -250,8 +265,8 @@ export function TracePanel() {
               </option>
             ))}
           </select>
-        </WindowField>
-        <WindowField label="Afterwards" title="What to do with the picture once its outlines are made. A hidden picture does not run and can be shown again from the Objects list.">
+        </PanelField>
+        <PanelField label="Afterwards" title="What to do with the picture once its outlines are made. A hidden picture does not run and can be shown again from the Objects list.">
           <select value={after} onChange={(e) => setAfter(e.target.value as PictureAfter)} style={fullWidth}>
             {(Object.keys(PICTURE_AFTER_LABELS) as PictureAfter[]).map((k) => (
               <option key={k} value={k}>
@@ -259,7 +274,7 @@ export function TracePanel() {
               </option>
             ))}
           </select>
-        </WindowField>
+        </PanelField>
         {limitProblem && (
           <p className="hint" style={{ ...hintStyle, color: 'var(--danger, #ff6b6b)' }}>
             {limitProblem}
@@ -273,7 +288,7 @@ export function TracePanel() {
             {shown.text}
           </p>
         )}
-      </WindowGroup>
-    </FloatingWindow>
+      </PanelGroup>
+    </section>
   );
 }

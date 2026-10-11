@@ -11,11 +11,10 @@ export interface LoadedPicture {
   height: number;
   /** How many times bigger than the picture itself that is (1 or more for a small picture, less than 1 for a big one). */
   scale: number;
-  /** A small copy of the picture, for the preview. */
-  thumbUrl: string;
+  /** The picture at that same size (white where it was transparent), for the preview. */
+  previewUrl: string;
 }
 
-const THUMB_SIDE = 360;
 const CACHE_SIZE = 3;
 const cache = new Map<string, Promise<LoadedPicture>>();
 
@@ -42,16 +41,16 @@ async function decode(assetId: string): Promise<LoadedPicture> {
   ctx.drawImage(img, 0, 0, width, height);
   const gray = grayFromRGBA(ctx.getImageData(0, 0, width, height).data, width, height);
 
-  const k = Math.min(1, THUMB_SIDE / Math.max(width, height));
-  const thumb = document.createElement('canvas');
-  thumb.width = Math.max(1, Math.round(width * k));
-  thumb.height = Math.max(1, Math.round(height * k));
-  const tctx = thumb.getContext('2d');
-  if (!tctx) throw new Error('This window cannot read pictures.');
-  tctx.fillStyle = '#ffffff';
-  tctx.fillRect(0, 0, thumb.width, thumb.height);
-  tctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-  return { gray, width, height, scale: width / img.naturalWidth, thumbUrl: thumb.toDataURL('image/png') };
+  // The picture as it was traced (at the size it was traced, on white where it is transparent), for the preview.
+  const flat = document.createElement('canvas');
+  flat.width = width;
+  flat.height = height;
+  const fctx = flat.getContext('2d');
+  if (!fctx) throw new Error('This window cannot read pictures.');
+  fctx.fillStyle = '#ffffff';
+  fctx.fillRect(0, 0, width, height);
+  fctx.drawImage(canvas, 0, 0);
+  return { gray, width, height, scale: width / img.naturalWidth, previewUrl: flat.toDataURL('image/png') };
 }
 
 /** The picture with this asset id, decoded once and kept for the last few pictures traced. */
@@ -75,3 +74,4 @@ export function loadPicture(assetId: string): Promise<LoadedPicture> {
   });
   return made;
 }
+
