@@ -482,3 +482,34 @@ tick under Offset and another under Fillet and chamfer), and Combine always repl
   return a plausible rectangle). **NOT tried in the real app.**
 - Ideas not started, for a smoother design flow: a live preview of Offset, Fillet and Chamfer on the canvas before pressing the
   button (needs the canvas code, WorkspaceCanvas.tsx), and a "repeat the last action" button.
+
+## Update 2026-10-11 (original shapes, one per tool): Offset keeps its original. This replaces the "one setting at the top" in the previous block.
+
+State first: the Original shapes update is on `main` (commit 12c9f25). This update is on branch `per-tool-originals` (merge to main once
+the checks pass and it has been tried in the app).
+
+Why: the previous update put ONE "Original shapes" setting at the top of the Shape tools tab, defaulting to Replace for all three
+tools. That is right for Fillet / Chamfer and Combine, which reshape a shape, but wrong for Offset, whose point is a NEW line round
+the original (a cut line round an engraving, a border, an inlay clearance). Replacing the original there throws away the thing the
+new line is meant to go round.
+
+- **The setting is now one per tool**, just above each tool's buttons (`ShapeToolsPanel.tsx`; logic in `apps/desktop-ui/src/lib/originals.ts`):
+  Combine starts on Replace, Offset starts on **Leave them as they are**, Fillet / Chamfer starts on Replace
+  (`DEFAULT_ORIGINAL_MODES`). Each can be changed to Replace, Hide or Leave; the three are independent and are kept while the tab is
+  hidden. The group at the top of the tab is gone.
+- Offset with Leave: the new outline is a new object ("Square (offset +2 mm)", or "(border +2 mm)" for Border only), on the same layer,
+  on top, and selected, so Fillet or another Offset can go straight on to it. The message is just "Made 1 offset shape." The original
+  is untouched.
+- `originalsNote(plan, tool)` stays quiet about what is simply the usual behaviour of the tool (a plain Replace for Combine and
+  Fillet / Chamfer, and leaving the original for Offset) and speaks up about anything else (hidden, or the unusual Leave / Replace,
+  and locked or open-line originals that were kept).
+- Everything else from the previous update is unchanged: Replace keeps the original's name, layer and stacking position; Hide sets
+  `visible: false`; a locked original or one with open lines is never replaced or hidden; an original that produced no result is left alone.
+- Not done: Offset puts its result on the SAME layer as the original. A cut line round an engraving usually belongs on a different
+  layer, so a "Put the result on layer" choice for Offset would save a step (Trace already has one). Not started. The settings are not
+  remembered between sessions. Circular array is unchanged (it adds copies).
+- Checked: 72 unit tests (`originals`, plus the 52 `corners` tests) in a stand-in runner; and 58 checks of the real panel in headless
+  Chromium with real React and the real shape code (the three defaults, independence of the three settings, Offset keeping its
+  original and Border only too, Offset set to Replace, Offset then Fillet chained, Fillet and Combine under all three modes, locked
+  and open-line originals, several shapes at once, no sideways overflow at 300, 340 and 380 px), plus deliberate breakages. Stand-ins
+  were used for the project store, NumberField, selectionKeys, arrange.ts and the two Rust geometry commands. **NOT tried in the real app.**

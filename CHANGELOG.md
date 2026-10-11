@@ -21,9 +21,10 @@
 - Shape tools: Fillet and Chamfer round or cut off the corners of the selected shapes: a size, which corners (all,
   outside or inside) and a minimum bend so smooth curves are left alone. One undo step, and the result is a plain
   outline. See docs/user-guide.md.
-- Shape tools: one "Original shapes" setting for Combine, Offset and Fillet / Chamfer. By default a result now takes the
-  place of the shapes it was made from, with their name, layer and position in the list, instead of leaving them
-  underneath (Hide or Leave them instead if you prefer). The two "Keep the original" ticks are gone.
+- Shape tools: an "Original shapes" setting in each of Combine, Offset and Fillet / Chamfer. Combine and Fillet / Chamfer
+  start by replacing the shapes they are made from (the result keeps their name, layer and position in the list); Offset
+  starts by keeping its original, because its point is a new line round it. Each can hide or leave the originals instead.
+  The two "Keep the original" ticks are gone.
 - Ctrl (Cmd on a Mac) now works like Shift for adding to the selection: clicking on the canvas, clicking in
   the Objects list, and box select.
 - The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.

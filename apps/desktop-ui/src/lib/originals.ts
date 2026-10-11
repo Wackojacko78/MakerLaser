@@ -2,8 +2,11 @@
 // place (Replace), they can be hidden (Hide) or they can stay as they are (Keep). Pure TypeScript (no React,
 // Konva or Tauri imports), so it is unit-tested in plain Node (tests/originals.test.ts).
 //
-// Replace is the usual choice: the result keeps the original's name and its place in the stacking order, so
-// a shape you combine, offset or round is still one shape in the Objects list instead of a pile of copies.
+// Replace is the usual choice for tools that reshape a shape (Combine, Fillet / Chamfer): the result keeps the
+// original's name and its place in the stacking order, so it is still one shape in the Objects list instead of
+// a pile of copies. Offset is different: its point is a NEW line round the original (a cut line round an
+// engraving, a border, an inlay), so it keeps the original to start with. Each tool has its own setting and
+// its own default (DEFAULT_ORIGINAL_MODES).
 // A locked shape is never replaced or hidden, and neither is one with open lines (they would be lost); the
 // result is then made as a new shape beside it.
 import type { WorkspaceObject } from '@/types/domain';
@@ -11,7 +14,16 @@ import type { WorkspaceObject } from '@/types/domain';
 export type OriginalMode = 'replace' | 'hide' | 'keep';
 
 export const ORIGINAL_MODES: readonly OriginalMode[] = ['replace', 'hide', 'keep'];
-export const DEFAULT_ORIGINAL_MODE: OriginalMode = 'replace';
+
+/** The tools that make a result from existing shapes. */
+export type OriginalTool = 'combine' | 'offset' | 'corners';
+
+/** What each tool does with its originals to start with. */
+export const DEFAULT_ORIGINAL_MODES: Readonly<Record<OriginalTool, OriginalMode>> = {
+  combine: 'replace',
+  offset: 'keep',
+  corners: 'replace',
+};
 
 export const ORIGINAL_MODE_LABELS: Record<OriginalMode, string> = {
   replace: 'Replace them with the result',
@@ -87,9 +99,14 @@ export function resultLook(
   return { name: describedName, zIndex: nextZIndex };
 }
 
-/** The sentence(s) added to the message after an action, about what happened to the originals. Empty for a plain Replace. */
-export function originalsNote(plan: OriginalsPlan): string {
+/**
+ * The sentence(s) added to the message after an action, about what happened to the originals. Says nothing
+ * about what is simply the usual behaviour of the tool (a plain Replace for Combine and Fillet / Chamfer, and
+ * leaving the original for Offset), so the message is only about what was out of the ordinary.
+ */
+export function originalsNote(plan: OriginalsPlan, tool?: OriginalTool): string {
   const parts: string[] = [];
+  const usual = tool !== undefined && plan.mode === DEFAULT_ORIGINAL_MODES[tool];
   if (plan.mode === 'hide' && plan.hide.length > 0) {
     parts.push(
       plan.hide.length === 1
@@ -97,7 +114,7 @@ export function originalsNote(plan: OriginalsPlan): string {
         : `The ${plan.hide.length} originals are hidden: the eye in the Objects list shows them again.`,
     );
   }
-  if (plan.mode === 'keep' && plan.total > 0) {
+  if (plan.mode === 'keep' && plan.total > 0 && !usual) {
     parts.push(plan.total === 1 ? 'The original is still there, under the result.' : `The ${plan.total} originals are still there, under the results.`);
   }
   if (plan.mode !== 'keep' && plan.kept > 0) parts.push('Locked shapes and shapes with open lines were kept.');

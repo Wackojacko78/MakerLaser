@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_ORIGINAL_MODE,
+  DEFAULT_ORIGINAL_MODES,
   ORIGINAL_MODES,
   ORIGINAL_MODE_HELP,
   ORIGINAL_MODE_LABELS,
@@ -26,13 +26,18 @@ const obj = (id: string, over: Partial<WorkspaceObject> = {}): WorkspaceObject =
 });
 
 describe('the modes', () => {
-  it('are Replace, Hide and Keep, and Replace is the default', () => {
+  it('are Replace, Hide and Keep', () => {
     expect(ORIGINAL_MODES).toEqual(['replace', 'hide', 'keep']);
-    expect(DEFAULT_ORIGINAL_MODE).toBe('replace');
     for (const m of ORIGINAL_MODES) {
       expect(ORIGINAL_MODE_LABELS[m].length).toBeGreaterThan(5);
       expect(ORIGINAL_MODE_HELP[m].length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('what each tool does to start with', () => {
+  it('Combine and Fillet / Chamfer replace the original, and Offset keeps it (its point is a new line round it)', () => {
+    expect(DEFAULT_ORIGINAL_MODES).toEqual({ combine: 'replace', offset: 'keep', corners: 'replace' });
   });
 });
 
@@ -116,6 +121,19 @@ describe('originalsNote', () => {
   it('says the originals are still there', () => {
     expect(originalsNote(planOriginals('keep', [ref('A')]))).toBe('The original is still there, under the result.');
     expect(originalsNote(planOriginals('keep', [ref('A'), ref('B'), ref('C')]))).toBe('The 3 originals are still there, under the results.');
+  });
+  it('says nothing about what is the usual behaviour of the tool, and still speaks up about anything else', () => {
+    // Offset keeps its original: nothing to say. Fillet / Chamfer and Combine replace: nothing to say.
+    expect(originalsNote(planOriginals('keep', [ref('A')]), 'offset')).toBe('');
+    expect(originalsNote(planOriginals('keep', [ref('A'), ref('B')]), 'offset')).toBe('');
+    expect(originalsNote(planOriginals('replace', [ref('A')]), 'corners')).toBe('');
+    // Leaving the original is out of the ordinary for Fillet / Chamfer and Combine, and replacing it is for Offset.
+    expect(originalsNote(planOriginals('keep', [ref('A')]), 'corners')).toBe('The original is still there, under the result.');
+    expect(originalsNote(planOriginals('keep', [ref('A'), ref('B')]), 'combine')).toBe('The 2 originals are still there, under the results.');
+    // Hiding is never the usual behaviour.
+    expect(originalsNote(planOriginals('hide', [ref('A')]), 'offset')).toBe('The original is hidden: the eye in the Objects list shows it again.');
+    // Locked shapes that were kept are always worth saying.
+    expect(originalsNote(planOriginals('replace', [ref('A'), ref('L', { locked: true })]), 'offset')).toBe('Locked shapes and shapes with open lines were kept.');
   });
   it('says which were kept because they are locked or have open lines', () => {
     expect(originalsNote(planOriginals('replace', [ref('A'), ref('L', { locked: true })]))).toBe('Locked shapes and shapes with open lines were kept.');

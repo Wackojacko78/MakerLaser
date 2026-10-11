@@ -47,12 +47,15 @@ Move, resize and rotate with the mouse or by typing numbers in **Properties**. *
 **Combine, offset and repeat.** Select the shapes (Shift-click or Ctrl-click adds to the selection), then click **Shape tools…** in the toolbar, or the **Shape tools** tab at the top of the right-hand panel. The tab stays as it is while you change the selection, and keeps its settings while you look at another tab.
 Each action works on the selection, is one **Ctrl+Z** step, and reports under the buttons.
 
-* **Original shapes** (at the top of the tab) decides what happens to the shapes a result is made from, for Combine, Offset
-  and Fillet / Chamfer. **Replace them with the result** (the usual choice) puts the result in their place, with the
-  same name, layer and position in the Objects list, and **Ctrl+Z** brings them back. **Hide them** keeps them, hidden
-  (the eye in the Objects list shows them again) and calls the result for what was done, like "Square (rounded 3 mm)".
-  **Leave them as they are** keeps them where they are, under the result. A locked shape, or one with open lines, is
-  never replaced or hidden. The result stays selected, so you can go straight on to the next tool.
+* **Original shapes** is a setting in each of Combine, Offset and Fillet / Chamfer (just above its buttons) that decides
+  what happens to the shapes a result is made from. **Replace them with the result** puts the result in their place, with
+  the same name, layer and position in the Objects list, and **Ctrl+Z** brings them back: it is where **Combine** and
+  **Fillet / Chamfer** start. **Leave them as they are** keeps them where they are and adds the result as a new shape
+  on top: it is where **Offset** starts, because its point is a new line round the original (a cut line round an
+  engraving, a border, a clearance). **Hide them** keeps them, hidden (the eye in the Objects list shows them again).
+  Replace names the result as the original was; Hide and Leave call it for what was done, like "Square (rounded
+  3 mm)" or "Square (offset +2 mm)". A locked shape, or one with open lines, is never replaced or hidden. The result stays
+  selected, so you can go straight on to the next tool.
 * **Union, Subtract, Intersect, Exclude** combine two or more closed shapes (rectangles, ellipses, text,
   closed paths) into one new shape (by default in place of them: see **Original shapes**). Pictures, locked shapes and open lines are
   refused, and the message names them. The new shape goes on the layer of the base shape. Under **Subtract from**
@@ -63,7 +66,7 @@ Each action works on the selection, is one **Ctrl+Z** step, and reports under th
 * **Offset** (**Outward** or **Inward**) makes a new outline the distance you type away from every
   selected closed shape, on the same layer. Holes move the other way, so a ring stays a ring, and a
   shape that is shrunk away leaves nothing. **Corners** Sharp keeps the points (a very sharp point is
-  cut off flat), Round rounds them. **Original shapes** (above) says whether the result replaces the original, hides it or leaves it. Engraving fills the
+  cut off flat), Round rounds them. **Original shapes** (just above the buttons) says what happens to the original: Offset leaves it where it is to start with, since the usual use is a cut line, border or clearance round it. Engraving fills the
   whole of a shape, so an offset shape engraved on its own also fills its middle: set **Result** to
   **Border only** to get a frame instead (the band between the old outline and the new one, with the middle
   empty). Use it for borders, inlays and clearances. It is separate from the **Kerf** setting of a Cut layer, which is
@@ -77,7 +80,7 @@ Each action works on the selection, is one **Ctrl+Z** step, and reports under th
   shapes are left alone. The line under the settings says how many corners they find. Where the edges
   next to a corner are too short for the size you typed, that corner is made smaller rather than overlapping
   its neighbour, and the message says how many. The result is a plain outline (a rectangle loses its
-  **Radius** box, so to round a rectangle and keep it editable use that box instead); **Original shapes** (above) says what happens to the shape it was made from. A large size can run into a nearby part of the same shape: look at the result.
+  **Radius** box, so to round a rectangle and keep it editable use that box instead); **Original shapes** (just above the buttons) says what happens to the shape it was made from: it is replaced to start with. A large size can run into a nearby part of the same shape: look at the result.
 * **Circular array** repeats the selection round a centre point: **Pieces** (the original included),
   **Angle** (360 is a full circle; less runs from the first piece to the last), **Centre X** and **Y**
   (the middle of the bed to start with) and **Turn the copies**. The copies go clockwise. The line under
