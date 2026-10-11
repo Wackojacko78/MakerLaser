@@ -449,3 +449,36 @@ That list is long. For the design pass the most useful files are `packages/commo
 `apps/desktop-ui/src/canvas/WorkspaceCanvas.tsx`, `apps/desktop-ui/src/lib/shapes.ts`, `apps/desktop-ui/src/lib/textTrace.ts` and
 `apps/desktop-ui/src/lib/corners.ts`, plus the project format and architecture documents in `docs`. Step 7 (cut tabs) does not
 depend on step 6, so it could go first if node editing needs more thought.
+
+## Update 2026-10-11 (original shapes): a result replaces the shapes it was made from.
+
+State first: the fillet and chamfer update is on `main` (commit 5504700). This update is on branch `originals` (merge to main once
+the checks pass and it has been tried in the app).
+
+Why: every Shape tools action kept the original on the canvas by default and gave the result a longer name, so a few steps left
+stacked copies and names like "Union (chamfered 100 mm)" beside "Union". The setting also lived in two places (a "Keep the original"
+tick under Offset and another under Fillet and chamfer), and Combine always replaced.
+
+- **One setting, "Original shapes", at the top of the Shape tools tab** (`ShapeToolsPanel.tsx`; logic in
+  `apps/desktop-ui/src/lib/originals.ts`), used by Combine, Offset and Fillet / Chamfer. **Replace them with the result** is the new
+  default: the result takes the place of the shapes it was made from, keeping their name, layer and position in the stacking order
+  (z_index), so a shape you combine, offset and round stays one shape in the Objects list; Ctrl+Z brings the originals back. **Hide
+  them** keeps the originals in the project with `visible: false` (they do not run; the eye in the Objects list shows them again) and
+  names the result for what was done ("Square (rounded 3 mm)"). **Leave them as they are** is the old behaviour. The two old ticks are gone.
+- A locked original, or one with open lines (a result would lose them), is never replaced or hidden, whichever mode is chosen: the
+  result is then a new shape beside it, and the message says so. An original that produced no result (a circle with no corner to
+  round, an inward offset bigger than the shape) is left exactly as it was.
+- The result stays selected, so Offset, then Fillet, then Chamfer can be chained on one shape without selecting it again.
+- Combine results are named after the BASE shape (the one picked under "Subtract from", or the one furthest back) and take its
+  layer and position; under Hide and Leave they are called "Rectangle (union)" and so on, not just "Union".
+- Not done: Circular array (it adds copies and keeps the original by definition); the setting is not remembered between sessions;
+  Trace has its own "Afterwards" choice (hide, keep or delete the picture), which this does not change.
+- Checked: 70 unit tests (`originals`, plus the 52 earlier `corners` tests) in a stand-in runner, with 10 deliberate breakages of
+  the logic each caught; and 48 checks of the real panel in headless Chromium with real React and the real shape code
+  (names, stacking position, layer, undo steps, selection, hidden originals, locked and open-line originals, three shapes at once,
+  chained Offset then Fillet, results that make nothing, Combine under all three modes, the choice kept while the tab is hidden,
+  no sideways overflow at 300, 340 and 380 px), plus deliberate breakages of the panel. Stand-ins were used for the project store,
+  NumberField, selectionKeys, arrange.ts and the two Rust geometry commands (the real geometry is tested in Rust; the stand-ins
+  return a plausible rectangle). **NOT tried in the real app.**
+- Ideas not started, for a smoother design flow: a live preview of Offset, Fillet and Chamfer on the canvas before pressing the
+  button (needs the canvas code, WorkspaceCanvas.tsx), and a "repeat the last action" button.

@@ -20,6 +20,17 @@ import {
   type CornerStyle,
   type CornerWhich,
 } from '@/lib/corners';
+import {
+  DEFAULT_ORIGINAL_MODE,
+  ORIGINAL_MODES,
+  ORIGINAL_MODE_HELP,
+  ORIGINAL_MODE_LABELS,
+  applyOriginals,
+  originalsNote,
+  planOriginals,
+  resultLook,
+  type OriginalMode,
+} from '@/lib/originals';
 import { selectionKey } from '@/lib/selectionKeys';
 import { api } from '@/lib/tauri';
 import {
@@ -58,8 +69,10 @@ type Say = { ok: boolean; text: string; key: string } | null;
  * button "Shape tools…". It works on the current selection, so you can pick other shapes while it is showing,
  * and it keeps its settings (distance, corners, array settings ...) while another tab is showing, because the
  * panel stays mounted and only draws nothing. Each action is one undo step and the answer is written under
- * the buttons (no pop-ups). The planning is in lib/shapeOps.ts; combining and offsetting are done by the
- * Rust geometry crate.
+ * the buttons (no pop-ups). By default a result takes the place of the shapes it was made from, with their
+ * name and position in the list (see "Original shapes" and lib/originals.ts); it can also hide them or leave
+ * them. The planning is in lib/shapeOps.ts and lib/corners.ts; combining and offsetting are done by the Rust
+ * geometry crate.
  */
 export function ShapeToolsPanel({ active }: { active: boolean }) {
   const project = useProjectStore((s) => s.project);
@@ -67,12 +80,13 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const mutate = useProjectStore((s) => s.mutate);
   const setSelection = useProjectStore((s) => s.setSelection);
   const [busy, setBusy] = useState(false);
+  // What happens to the shapes a result is made from: the same for Combine, Offset and Fillet / Chamfer.
+  const [original, setOriginal] = useState<OriginalMode>(DEFAULT_ORIGINAL_MODE);
   const [say, setSay] = useState<Say>(null);
   const [cutFrom, setCutFrom] = useState<string | null>(null);
   const [distance, setDistance] = useState(2);
   const [rounded, setRounded] = useState(false);
   const [borderOnly, setBorderOnly] = useState(false);
-  const [keepOriginal, setKeepOriginal] = useState(true);
   const [count, setCount] = useState(6);
   const [angle, setAngle] = useState(360);
   // null: the middle of the bed, whatever the bed is at the moment.
@@ -83,7 +97,6 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const [cornerSize, setCornerSize] = useState(DEFAULT_CORNER_SIZE_MM);
   const [cornerWhich, setCornerWhich] = useState<CornerWhich>('all');
   const [minTurn, setMinTurn] = useState(DEFAULT_MIN_TURN_DEG);
-  const [keepCornerOriginal, setKeepCornerOriginal] = useState(true);
   // How many corners the settings find in the selection: worked out again only when they, or the artwork, change.
   const cornerFound = useMemo(() => {
     if (!active || !project) return null;
@@ -124,6 +137,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   // Say something about the selection as it is NOW (call it after setSelection, so a result is about its own selection).
   const tell = (ok: boolean, text: string) => setSay({ ok, text, key: selectionKey(useProjectStore.getState().selected) });
   const shown = say && say.key === selectionKey(selected) ? say : null;
+  // Where an object sits in the stacking order now (a result that takes its place keeps it).
+  const zOf = (id: string): number | undefined => project.objects.find((o) => o.id === id)?.z_index;
 
   const combine = async (op: BooleanOp) => {
     const plan = planBoolean(project.objects, selected, op, baseId);
@@ -134,18 +149,25 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
     setBusy(true);
     try {
       const paths = await api.booleanPaths(op, plan.shapes);
-      const made = resultObject(paths, { name: BOOLEAN_LABELS[op], layerId: plan.layerId, zIndex: useProjectStore.getState().nextZIndex() });
-      if (!made) {
+      const shape = resultObject(paths, { name: plan.baseName, layerId: plan.layerId, zIndex: useProjectStore.getState().nextZIndex() });
+      if (!shape) {
         tell(false, emptyResultMessage(op));
         return;
       }
-      const gone = new Set(plan.sourceIds);
+      // Shapes that are locked or have open lines are refused before this point, so every source can be replaced.
+      const originals = planOriginals(
+        original,
+        plan.sourceIds.map((id) => ({ id, locked: false, hasLoose: false })),
+      );
+      // The result takes the place of the base shape: its name, and its position in the stacking order.
+      const look = resultLook(originals.remove.length > 0, plan.baseName, `${plan.baseName} (${BOOLEAN_LABELS[op].toLowerCase()})`, baseId ? zOf(baseId) : undefined, shape.z_index);
+      const made = { ...shape, name: look.name, z_index: look.zIndex };
       mutate((p) => {
-        p.objects = p.objects.filter((o) => !gone.has(o.id));
+        p.objects = applyOriginals(p.objects, originals);
         p.objects.push(made);
       });
       setSelection([made.id]);
-      tell(true, `${BOOLEAN_LABELS[op]}: ${plan.sourceIds.length} shapes became one.`);
+      tell(true, [`${BOOLEAN_LABELS[op]}: ${plan.sourceIds.length} shapes became one.`, originalsNote(originals)].filter(Boolean).join(' '));
     } catch (e) {
       tell(false, failure(e));
     } finally {
@@ -185,27 +207,31 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
           results.push(await api.booleanPaths('subtract', border.shapes));
         }
       }
-      let z = useProjectStore.getState().nextZIndex();
-      const made: WorkspaceObject[] = [];
+      const shapes: Array<{ item: (typeof plan.items)[number]; shape: WorkspaceObject }> = [];
       const vanished: string[] = [];
-      const replaced = new Set<string>();
       plan.items.forEach((item, i) => {
-        const object = resultObject(results[i] ?? [], { name: offsetName(item.name, delta, borderOnly), layerId: item.layerId, zIndex: z });
-        if (!object) {
-          vanished.push(item.name);
-          return;
-        }
-        z += 1;
-        made.push(object);
-        // The original is only replaced when asked, and never when it is locked or has open lines (they would be lost).
-        if (!keepOriginal && !item.locked && !item.hasLoose) replaced.add(item.id);
+        const shape = resultObject(results[i] ?? [], { name: item.name, layerId: item.layerId, zIndex: 0 });
+        if (shape) shapes.push({ item, shape });
+        else vanished.push(item.name);
       });
-      if (made.length === 0) {
+      if (shapes.length === 0) {
         tell(false, delta < 0 ? 'Nothing is left: the shape is smaller than the offset.' : 'Nothing was made.');
         return;
       }
+      // Only shapes that produced a result have an original to deal with. Locked ones, and ones with open lines, are kept.
+      const originals = planOriginals(
+        original,
+        shapes.map(({ item }) => ({ id: item.id, locked: item.locked, hasLoose: item.hasLoose })),
+      );
+      const removed = new Set(originals.remove);
+      let z = useProjectStore.getState().nextZIndex();
+      const made: WorkspaceObject[] = shapes.map(({ item, shape }) => {
+        const look = resultLook(removed.has(item.id), item.name, offsetName(item.name, delta, borderOnly), zOf(item.id), z);
+        if (look.zIndex === z) z += 1;
+        return { ...shape, name: look.name, z_index: look.zIndex };
+      });
       mutate((p) => {
-        if (replaced.size > 0) p.objects = p.objects.filter((o) => !replaced.has(o.id));
+        p.objects = applyOriginals(p.objects, originals);
         p.objects.push(...made);
       });
       setSelection(made.map((o) => o.id));
@@ -214,7 +240,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       if (vanished.length > 0) notes.push(`${vanished.map((n) => `"${n}"`).join(', ')} vanished (smaller than the offset).`);
       if (wholeShape.length > 0) notes.push(`${wholeShape.map((n) => `"${n}"`).join(', ')} is smaller than the offset, so its border is the whole shape.`);
       if (plan.skipped.length > 0) notes.push(`${plan.skipped.map((n) => `"${n}"`).join(', ')} left out (not a closed shape).`);
-      if (!keepOriginal && made.length > replaced.size) notes.push('Locked shapes and shapes with open lines were kept.');
+      const about = originalsNote(originals);
+      if (about) notes.push(about);
       tell(true, [`Made ${made.length} ${what} ${made.length === 1 ? 'shape' : 'shapes'}.`, ...notes].join(' '));
     } catch (e) {
       tell(false, failure(e));
@@ -235,34 +262,40 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       return;
     }
     const options = { style, sizeMm: cornerSize, minTurnDeg: minTurn, which: cornerWhich };
-    let z = useProjectStore.getState().nextZIndex();
-    const made: WorkspaceObject[] = [];
-    const replaced = new Set<string>();
+    const shapes: Array<{ item: (typeof plan.items)[number]; shape: WorkspaceObject }> = [];
     const untouched: string[] = [];
     const totals = { shapes: 0, changed: 0, reduced: 0, skipped: 0 };
     for (const item of plan.items) {
       const result = roundCorners(item.paths, options);
-      const object =
-        result.changed > 0 ? resultObject(result.paths, { name: cornersName(item.name, style, cornerSize), layerId: item.layerId, zIndex: z }) : null;
-      if (!object) {
+      const shape = result.changed > 0 ? resultObject(result.paths, { name: item.name, layerId: item.layerId, zIndex: 0 }) : null;
+      if (!shape) {
         untouched.push(item.name);
         continue;
       }
-      z += 1;
-      made.push(object);
+      shapes.push({ item, shape });
       totals.shapes += 1;
       totals.changed += result.changed;
       totals.reduced += result.reduced;
       totals.skipped += result.skipped;
-      // The original is only replaced when asked, and never when it is locked or has open lines (they would be lost).
-      if (!keepCornerOriginal && !item.locked && !item.hasLoose) replaced.add(item.id);
     }
-    if (made.length === 0) {
+    if (shapes.length === 0) {
       tell(false, noCornersMessage({ minTurnDeg: minTurn, which: cornerWhich }));
       return;
     }
+    // Only shapes that had a corner changed have an original to deal with. Locked ones, and ones with open lines, are kept.
+    const originals = planOriginals(
+      original,
+      shapes.map(({ item }) => ({ id: item.id, locked: item.locked, hasLoose: item.hasLoose })),
+    );
+    const removed = new Set(originals.remove);
+    let z = useProjectStore.getState().nextZIndex();
+    const made: WorkspaceObject[] = shapes.map(({ item, shape }) => {
+      const look = resultLook(removed.has(item.id), item.name, cornersName(item.name, style, cornerSize), zOf(item.id), z);
+      if (look.zIndex === z) z += 1;
+      return { ...shape, name: look.name, z_index: look.zIndex };
+    });
     mutate((p) => {
-      if (replaced.size > 0) p.objects = p.objects.filter((o) => !replaced.has(o.id));
+      p.objects = applyOriginals(p.objects, originals);
       p.objects.push(...made);
     });
     setSelection(made.map((o) => o.id));
@@ -271,7 +304,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
     if (untouched.length > 0) notes.push(`${names(untouched)} had no corner to change.`);
     if (plan.skipped.length > 0) notes.push(`${names(plan.skipped)} left out (not a closed shape).`);
     if (plan.tooDetailed.length > 0) notes.push(`${names(plan.tooDetailed)} left out (too much detail).`);
-    if (!keepCornerOriginal && made.length > replaced.size) notes.push('Locked shapes and shapes with open lines were kept.');
+    const about = originalsNote(originals);
+    if (about) notes.push(about);
     tell(true, [cornersSummary(style, totals), ...notes].join(' '));
   };
   const makeArray = () => {
@@ -295,7 +329,22 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
         {selectedCount === 0 ? 'Nothing is selected.' : selectedCount === 1 ? '1 object is selected.' : `${selectedCount} objects are selected.`} The tools work on the
         selection, so you can pick other shapes while this tab is showing.
       </p>
-      <PanelGroup title="Combine shapes" first>
+      <PanelGroup title="Original shapes" first>
+        <PanelField label="After combining, offsetting or rounding" title={ORIGINAL_MODE_HELP[original]}>
+          <select value={original} onChange={(e) => setOriginal(e.target.value as OriginalMode)} style={fullWidth}>
+            {ORIGINAL_MODES.map((m) => (
+              <option key={m} value={m}>
+                {ORIGINAL_MODE_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </PanelField>
+        <p className="hint" style={hintStyle}>
+          {ORIGINAL_MODE_HELP[original]}
+        </p>
+      </PanelGroup>
+
+      <PanelGroup title="Combine shapes">
         {choices.length >= 2 && (
           <PanelField label="Subtract from" title="The base shape. Subtract cuts all the other selected shapes out of it, and the result goes on its layer.">
             <select value={baseId ?? ''} onChange={(e) => setCutFrom(e.target.value)} style={{ ...fullWidth, textOverflow: 'ellipsis' }}>
@@ -363,9 +412,6 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
             Inward
           </button>
         </div>
-        <PanelTick checked={keepOriginal} onChange={setKeepOriginal} title="Leave the shape you started from where it is">
-          Keep the original
-        </PanelTick>
       </PanelGroup>
 
       <PanelGroup title="Fillet and chamfer">
@@ -400,9 +446,6 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
             Chamfer
           </button>
         </div>
-        <PanelTick checked={keepCornerOriginal} onChange={setKeepCornerOriginal} title="Leave the shape you started from where it is">
-          Keep the original
-        </PanelTick>
       </PanelGroup>
       <PanelGroup title="Circular array">
         <div style={twoColumns}>
