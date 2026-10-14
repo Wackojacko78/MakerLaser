@@ -87,6 +87,7 @@
 
 ### Fixed
 - Choosing the generic serif or monospace font drew sans-serif.
+- Shape tools: offsetting a shape with Sharp corners, one way and then back the other (an ellipse Inward once and then Outward a few times, say), could throw out a spike hundreds of millimetres long. Clipper2 leaves edges 0.01 mm long in its results, and the next pointed offset mishandled them; each shape is now tidied before it is offset. Round corners were never affected.
 
 ## 0.1.0
 

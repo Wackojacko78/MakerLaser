@@ -149,6 +149,73 @@ pub fn combine(op: BooleanOp, shapes: &[Vec<Path2D>]) -> Result<Vec<Path2D>, Str
     Ok(result)
 }
 
+/// Points closer together than this (in mm) count as one point. Clipper2 snaps every result to a 0.01 mm grid,
+/// so a result can carry edges only 0.01 mm long, and offsetting such a shape again with pointed (Sharp)
+/// corners can throw one spike hundreds of millimetres long. See `tidy`.
+const MIN_EDGE_MM: f64 = 0.05;
+/// A point this close (in mm) to the straight line between its two neighbours adds nothing.
+const STRAIGHT_MM: f64 = 0.002;
+
+fn distance(a: Point2, b: Point2) -> f64 {
+    (a.x - b.x).hypot(a.y - b.y)
+}
+
+/// How far `b` is from the straight line through `a` and `c`. Zero when `a` and `c` are the same point.
+fn height_over(a: Point2, b: Point2, c: Point2) -> f64 {
+    let base = distance(a, c);
+    if base < 1e-12 {
+        return 0.0;
+    }
+    ((c.x - a.x) * (a.y - b.y) - (c.y - a.y) * (a.x - b.x)).abs() / base
+}
+
+/// A closed path without its needless points: points that sit on top of the one before (closer than
+/// `MIN_EDGE_MM`) and points on the straight line between their neighbours (within `STRAIGHT_MM`). A smooth
+/// curve keeps every point. A few passes, each taking out points that are not next to one another, so a very
+/// long gentle curve is never thinned out of shape (it can move by up to about 0.01 mm). `None` when fewer
+/// than three points are left.
+fn tidy(path: &Path2D) -> Option<Path2D> {
+    let mut pts: Vec<Point2> = Vec::with_capacity(path.points.len());
+    for &q in &path.points {
+        let far_enough = match pts.last() {
+            Some(&last) => distance(last, q) >= MIN_EDGE_MM,
+            None => true,
+        };
+        if far_enough {
+            pts.push(q);
+        }
+    }
+    while pts.len() > 1 && distance(pts[0], pts[pts.len() - 1]) < MIN_EDGE_MM {
+        pts.pop();
+    }
+    for _ in 0..4 {
+        let n = pts.len();
+        if n < 4 {
+            break;
+        }
+        let mut kept: Vec<Point2> = Vec::with_capacity(n);
+        let mut dropped_before = false;
+        let mut dropped_first = false;
+        for i in 0..n {
+            let (a, b, c) = (pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]);
+            // The last point is next to the first one, so it stays if the first one went.
+            let clashes = i == n - 1 && dropped_first;
+            if !dropped_before && !clashes && height_over(a, b, c) < STRAIGHT_MM {
+                dropped_before = true;
+                dropped_first |= i == 0;
+                continue;
+            }
+            dropped_before = false;
+            kept.push(b);
+        }
+        if kept.len() < 3 || kept.len() == n {
+            break;
+        }
+        pts = kept;
+    }
+    (pts.len() >= 3).then(|| Path2D::new(pts, true))
+}
+
 /// Offsets one shape: a positive `delta_mm` makes it bigger by that much all round, a negative one
 /// makes it smaller. Holes move the other way (a hole shrinks as the shape grows), and islands in
 /// holes grow with the shape, so a ring stays a ring. The result can be several paths (a shape
@@ -163,6 +230,11 @@ pub fn offset_shape(
     }
     let closed = usable(paths);
     if closed.is_empty() || delta_mm == 0.0 {
+        return Ok(closed);
+    }
+    // Clipper2's own results have tiny edges that make a pointed offset spike: see `tidy`.
+    let closed: Vec<Path2D> = closed.iter().filter_map(tidy).collect();
+    if closed.is_empty() {
         return Ok(closed);
     }
     let depth = depths(&closed);
@@ -545,6 +617,114 @@ mod tests {
         assert_eq!(offset_shape(&sq, 0.0, Corners::Sharp).unwrap(), sq.to_vec());
         for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert!(offset_shape(&sq, bad, Corners::Sharp).is_err(), "{bad}");
+        }
+    }
+
+    /// The same ellipse the Ellipse tool makes (lib/shapes.ts: ellipsePoints), coordinates to 0.001 mm.
+    fn ellipse(w: f64, h: f64) -> Path2D {
+        let (rx, ry) = (w / 2.0, h / 2.0);
+        let r = rx.max(ry);
+        let raw = (std::f64::consts::PI / (1.0 - 0.02 / r).acos()).ceil();
+        let n = ((raw / 4.0).ceil() * 4.0).clamp(16.0, 1024.0) as usize;
+        let round3 = |v: f64| (v * 1000.0).round() / 1000.0;
+        let points = (0..n)
+            .map(|k| {
+                let a = -std::f64::consts::FRAC_PI_2
+                    + 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+                Point2::new(round3(rx + rx * a.cos()), round3(ry + ry * a.sin()))
+            })
+            .collect();
+        Path2D::new(points, true)
+    }
+
+    #[test]
+    fn tidy_drops_points_on_top_of_each_other_and_points_on_a_straight_line() {
+        let messy = Path2D::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.01, 0.0),
+                Point2::new(5.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+                Point2::new(0.0, 10.0),
+            ],
+            true,
+        );
+        let clean = tidy(&messy).unwrap();
+        assert_eq!(clean.points.len(), 4);
+        assert!(near(clean.area(), 100.0), "{}", clean.area());
+    }
+
+    #[test]
+    fn tidy_leaves_a_square_and_a_smooth_curve_alone() {
+        let sq = square(0.0, 0.0, 10.0);
+        assert_eq!(tidy(&sq).unwrap(), sq);
+        let circle = ellipse(30.0, 30.0);
+        assert_eq!(tidy(&circle).unwrap().points.len(), circle.points.len());
+    }
+
+    #[test]
+    fn tidy_gives_nothing_for_a_speck() {
+        let speck = Path2D::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.01, 0.0),
+                Point2::new(0.0, 0.01),
+            ],
+            true,
+        );
+        assert!(tidy(&speck).is_none());
+    }
+
+    #[test]
+    fn a_pointed_offset_of_an_ellipse_in_and_out_does_not_throw_a_spike() {
+        // What the Shape tools tab does when Inward and Outward are pressed one after the other on the
+        // result: each result is offset again, with its coordinates rounded to 0.001 mm in between. Before
+        // `tidy`, ellipses such as 60 x 40 grew one spike hundreds of millimetres long after the second step.
+        let sequences: [&[f64]; 3] = [
+            &[-2.0, 2.0, 2.0, 2.0],
+            &[-2.0, -2.0, -2.0, -2.0],
+            &[2.0, 2.0, -2.0, -2.0, 2.0, 2.0],
+        ];
+        let round3 = |v: f64| (v * 1000.0).round() / 1000.0;
+        for (w, h) in [
+            (30.0, 30.0),
+            (40.0, 30.0),
+            (60.0, 40.0),
+            (80.0, 50.0),
+            (120.0, 90.0),
+            (200.0, 150.0),
+        ] {
+            for steps in sequences {
+                let mut shape = vec![ellipse(w, h)];
+                let mut grown = 0.0_f64;
+                for &step in steps {
+                    grown += step;
+                    shape = offset_shape(&shape, step, Corners::Sharp)
+                        .unwrap()
+                        .iter()
+                        .map(|p| {
+                            let rounded = p
+                                .points
+                                .iter()
+                                .map(|q| Point2::new(round3(q.x), round3(q.y)))
+                                .collect();
+                            Path2D::new(rounded, true)
+                        })
+                        .collect();
+                    let far = shape
+                        .iter()
+                        .flat_map(|p| p.points.iter())
+                        .map(|q| (q.x - w / 2.0).hypot(q.y - h / 2.0))
+                        .fold(0.0_f64, f64::max);
+                    let limit = w.max(h) / 2.0 + grown.max(0.0) + 1.0;
+                    assert!(
+                        far < limit,
+                        "{w} x {h}, steps {steps:?}: a point {far:.1} mm from the middle (limit {limit:.1})"
+                    );
+                    assert_eq!(shape.len(), 1, "{w} x {h}, steps {steps:?}");
+                }
+            }
         }
     }
 
