@@ -14,14 +14,16 @@ says "Next task", "NOT confirmed", "NOT yet compiled", "on branch offset-layer" 
   image threshold and sharpen; Shape tools with Combine, Offset and a circular array; bitmap trace; the right-hand tabs; fillet and
   chamfer (5504700); Original shapes as one setting per tool (1eaac6d); and the Offset choice "Put the result on layer" (lib/offsetLayer.ts).
   Lee has tried the layer choice in the app.
-- Believed to be on main as well, NOT confirmed: the fix for the Sharp offset spike (a new function, tidy, in
-  packages/geometry/src/shape_ops.rs). Lee tried it in the app and said it fixed the spike. It went in on the same branch as the layer
-  choice, that branch no longer exists and his tree was clean, so it was almost certainly merged. The assistant has NOT seen the cargo test
-  output for the new tests, and has not seen CI for any commit after 4ac9c8a.
-- Pushed by Lee at the end of the night, merge and CI NOT known (border-chain is the branch name the assistant gave him; confirm it with
-  git branch -a): "Border only steps on to the next frame". It adds
-  lib/borderChain.ts and its tests, and changes ShapeToolsPanel.tsx and the docs. If it installed cleanly the front end has 46 test files
-  and 917 tests; Lee has not pasted the checks for it. He tried it in the app and found the problem described under "Open problem" below.
+- Also on main, confirmed from Lee's git log on 2026-10-14: the fix for the Sharp offset spike (4236e57; a new function, tidy, in
+  packages/geometry/src/shape_ops.rs, found by git grep). Lee tried it in the app and said it fixed the spike. GitHub CI was green for 4236e57
+  (runs 53 on the branch and 54 on main), which includes the Rust jobs and the enforced Rust format check. The assistant still has NOT seen the
+  cargo test output for the four new tidy tests; whether the CI Rust jobs run the tests or only build was never confirmed (open the log of
+  run 54 and look for a "test result" line).
+- Also on main: "Border only steps on to the next frame" (35b3d09, fast-forward merge; the branch border-chain is deleted). It adds
+  lib/borderChain.ts and its tests, and changes ShapeToolsPanel.tsx and the docs. Lee's checks on that branch before the merge: check-docs 0 errors
+  and 0 warnings, typecheck and lint clean, 46 test files and 917 tests passing. GitHub CI was green (runs 55 and 56). The handoff update to this
+  file is on main too (f7b82a2, CI runs 57 and 58 green). Lee tried the Border only update in the app and found the problem described under
+  "Open problem" below. As of 2026-10-14 main has no other branches, local or on GitHub, and a clean tree.
 - Always ask Lee first for: git status --short, git branch -a, git log --oneline -8, and whether CI is green. Lee often merges and deletes
   a branch before the next message, and has several times merged before CI finished: always ask him to wait for green.
 
@@ -72,7 +74,7 @@ says "Next task", "NOT confirmed", "NOT yet compiled", "on branch offset-layer" 
 ### The plan, in the order agreed with Lee
 Lee is keen to do ALL of these. Done: layers and image panel, boolean / offset / arrays, bitmap trace, fillets and chamfers, the Offset layer
 choice, Border only stepping.
-1. FIRST JOB: the git questions above, CI, and (if not seen) the output of npm run rust:test for the tidy tests. Then the open problem above.
+1. FIRST JOB: the git questions above (the state at the end of 2026-10-14 is clean, so a short check is enough), then the open problem above. If convenient, the output of npm run rust:test for the tidy tests.
 2. Hardware tests and release 0.2.0. Needs the laser and the focus cylinder: Lee's job, not the assistant's. Untried on real hardware:
    overscan, Start From and Job Origin, fill outline, ramped power, what Pause does with the beam. Add a VERIFICATION.md row per result,
    then cut 0.2.0.
