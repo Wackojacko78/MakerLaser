@@ -63,10 +63,9 @@ Each action works on the selection, is one **Ctrl+Z** step, and reports under th
   shape furthest back (the lowest in the Objects list). A combined
   shape is a plain outline, so it can no longer be edited as a rectangle or as text. Results are
   snapped to a 0.01 mm grid.
-* **Offset** (**Outward** or **Inward**) makes a new outline the distance you type away from every
-  selected closed shape, on the same layer. Holes move the other way, so a ring stays a ring, and a
+* **Offset** (**Outward** or **Inward**) makes a new outline the distance you type away from every selected closed shape, on the same layer to start with. Holes move the other way, so a ring stays a ring, and a
   shape that is shrunk away leaves nothing. **Corners** Sharp keeps the points (a very sharp point is
-  cut off flat), Round rounds them. **Original shapes** (just above the buttons) says what happens to the original: Offset leaves it where it is to start with, since the usual use is a cut line, border or clearance round it. Engraving fills the
+  cut off flat), Round rounds them. **Original shapes** (just above the buttons) says what happens to the original: Offset leaves it where it is to start with, since the usual use is a cut line, border or clearance round it. **Put the result on layer** (above the buttons) sends the new outline to another layer instead, for example a Cut layer round an engraving on a Fill layer; it starts on **Same layer as the original**, and the message under the buttons says which layer the result went on. Engraving fills the
   whole of a shape, so an offset shape engraved on its own also fills its middle: set **Result** to
   **Border only** to get a frame instead (the band between the old outline and the new one, with the middle
   empty). Use it for borders, inlays and clearances. It is separate from the **Kerf** setting of a Cut layer, which is

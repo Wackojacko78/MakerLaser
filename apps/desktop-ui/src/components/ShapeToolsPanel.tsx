@@ -31,6 +31,7 @@ import {
   resultLook,
   type OriginalMode,
 } from '@/lib/originals';
+import { SAME_LAYER, SAME_LAYER_LABEL, chosenResultLayer, onLayerNote, resultLayerChoices } from '@/lib/offsetLayer';
 import { selectionKey } from '@/lib/selectionKeys';
 import { api } from '@/lib/tauri';
 import {
@@ -90,6 +91,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const [distance, setDistance] = useState(2);
   const [rounded, setRounded] = useState(false);
   const [borderOnly, setBorderOnly] = useState(false);
+  // Offset: which layer the result goes on. SAME_LAYER (empty) keeps each result on the layer of the shape it came from.
+  const [offsetLayer, setOffsetLayer] = useState<string>(SAME_LAYER);
   const [count, setCount] = useState(6);
   const [angle, setAngle] = useState(360);
   // null: the middle of the bed, whatever the bed is at the moment.
@@ -126,6 +129,10 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const baseId = chosenBase(choices, cutFrom);
   const canCombine = planBoolean(project.objects, selected, 'union', baseId).ok;
   const canOffset = planOffset(project.objects, selected).ok;
+  const layerChoices = resultLayerChoices(project.layers);
+  // null: each result stays on the layer of the shape it was made from (also when the pick has gone).
+  const offsetLayerId = chosenResultLayer(layerChoices, offsetLayer);
+  const offsetWhere = onLayerNote(layerChoices, offsetLayerId);
   const cornerProblems = validateCornerOptions({ sizeMm: cornerSize, minTurnDeg: minTurn });
   const canCorners = cornerFound !== null && cornerFound.plan.ok && cornerFound.found > 0 && cornerProblems.length === 0;
   const arrayOptions = {
@@ -225,7 +232,7 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       const shapes: Array<{ item: (typeof plan.items)[number]; shape: WorkspaceObject }> = [];
       const vanished: string[] = [];
       plan.items.forEach((item, i) => {
-        const shape = resultObject(results[i] ?? [], { name: item.name, layerId: item.layerId, zIndex: 0 });
+        const shape = resultObject(results[i] ?? [], { name: item.name, layerId: offsetLayerId ?? item.layerId, zIndex: 0 });
         if (shape) shapes.push({ item, shape });
         else vanished.push(item.name);
       });
@@ -257,7 +264,7 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       if (plan.skipped.length > 0) notes.push(`${plan.skipped.map((n) => `"${n}"`).join(', ')} left out (not a closed shape).`);
       const about = originalsNote(originals, 'offset');
       if (about) notes.push(about);
-      tell(true, [`Made ${made.length} ${what} ${made.length === 1 ? 'shape' : 'shapes'}.`, ...notes].join(' '));
+      tell(true, [`Made ${made.length} ${what} ${made.length === 1 ? 'shape' : 'shapes'}${offsetWhere}.`, ...notes].join(' '));
     } catch (e) {
       tell(false, failure(e));
     } finally {
@@ -395,6 +402,16 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
             A frame: the band between the old outline and the new one, with the middle empty. Engraving it leaves the middle alone.
           </p>
         )}
+        <PanelField label="Put the result on layer" title="Where the new outline goes. A cut line round an engraving usually belongs on a Cut layer.">
+          <select value={offsetLayerId ?? SAME_LAYER} onChange={(e) => setOffsetLayer(e.target.value)} style={fullWidth}>
+            <option value={SAME_LAYER}>{SAME_LAYER_LABEL}</option>
+            {layerChoices.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </PanelField>
         {originalField(originalOffset, setOriginalOffset)}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
           <button

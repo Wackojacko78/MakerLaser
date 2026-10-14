@@ -25,6 +25,8 @@
   start by replacing the shapes they are made from (the result keeps their name, layer and position in the list); Offset
   starts by keeping its original, because its point is a new line round it. Each can hide or leave the originals instead.
   The two "Keep the original" ticks are gone.
+- Shape tools: Offset has a "Put the result on layer" choice, so a cut line round an engraving can go straight onto a Cut layer.
+  It starts on "Same layer as the original", which is what Offset did before.
 - Ctrl (Cmd on a Mac) now works like Shift for adding to the selection: clicking on the canvas, clicking in
   the Objects list, and box select.
 - The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.

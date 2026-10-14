@@ -14,14 +14,12 @@ says "Next task" or "this replaces ...", this section wins.
   threshold and sharpen (9143ec3); Shape tools with Combine, Offset and a circular array, and Ctrl adding to the selection (56867fd);
   bitmap trace with a Trace window (ba776f3); right-hand tabs Properties, Shape tools and Trace, with a zoomable Trace preview
   (4ac9c8a); fillet and chamfer (5504700); an Original shapes setting (12c9f25).
-- NOT confirmed on main: branch per-tool-originals (commit 1eaac6d). It makes Original shapes one setting per tool: Combine and
-  Fillet / Chamfer replace the shapes they are made from, Offset keeps its original (its point is a new line round it). It is pushed
-  and installed, and Lee says the tools work as expected. His merge command that night named the wrong branch, so it did not merge.
-  FIRST JOB: ask for the output of "git log --oneline -5" and "git branch -a". If per-tool-originals is not in main, merge it
-  (CI green on the branch first).
-- Checks: at 12c9f25 the front end had 44 test files and 883 tests, all passing, typecheck and lint clean, check-docs clean. CI run
-  44 (for 4ac9c8a) was green. Not yet seen: CI for 5504700, 12c9f25 and 1eaac6d, and the typecheck, lint and test output for
-  per-tool-originals. Ask for them. Lee has several times merged before CI finished: always ask him to wait for green.
+- Also on main (1eaac6d): per-tool-originals. Original shapes is one setting per tool: Combine and Fillet / Chamfer replace the shapes
+  they are made from, Offset keeps its original. Confirmed on 2026-10-14 from git log: main was at f42360a with nothing waiting to merge,
+  and git branch -a showed only main.
+- Checks: on 2026-10-14 Lee ran check-docs, typecheck, lint and the tests on main (f42360a): check-docs 0 errors and 0 warnings, typecheck and
+  lint clean, 44 test files and 885 tests passing. CI for the commits after 4ac9c8a (5504700, 12c9f25, 1eaac6d, f42360a) has not been seen: ask
+  for it. Lee has several times merged before CI finished: always ask him to wait for green.
 
 ### What the program can do now (so nothing is built twice)
 
@@ -41,7 +39,7 @@ Lee is keen to do ALL of these. Done: layers and image panel, boolean / offset /
 1. Hardware tests and release 0.2.0. Needs the laser and the focus cylinder: Lee's job, not the assistant's. Untried on real
    hardware: overscan, Start From and Job Origin, fill outline, ramped power, what Pause does with the beam. Add a VERIFICATION.md
    row per result, then cut 0.2.0.
-2. Small and quick: a "Put the result on layer" choice for Offset (a cut line round an engraving usually belongs on a different layer;
+2. Done on branch offset-layer (see the last block of this file; merge once CI is green): a "Put the result on layer" choice for Offset (a cut line round an engraving usually belongs on a different layer;
    Trace already has one). Then maybe: presets that also remember threshold and sharpen.
 3. Step 7, cut tabs and bridges: small gaps left in a cut line so a part stays attached to the sheet. Width, count or spacing, and
    a preview of where they fall. Self-contained, so it can go before node editing. Needs the toolpath code.
@@ -63,7 +61,7 @@ zoom and the tool settings between sessions; Arrange and Test grid are still pop
 The assistant's sandbox is empty at the start of every session and can also reset in the middle of one. Nothing is remembered except this
 file, the saved memories and the conversation history. So:
 
-1. Lee uploads STATUS.md (this file) and says what he wants. The assistant reads this section first and does the FIRST JOB above.
+1. Lee uploads STATUS.md (this file) and says what he wants. The assistant reads this section first and checks the state with git log --oneline -5 and git branch -a.
 2. For each piece of work the assistant asks for a bundle of the files it needs. Lee makes it with the Bundle function below and uploads
    it. Uploads can be renamed to end in .txt if they are blocked; very large bundles (over about 300 KB) sometimes fail, so ask for a
    smaller one. The assistant rebuilds the files from the bundle with a few lines of Python (split on the "===== path =====" lines).
@@ -660,3 +658,13 @@ new line is meant to go round.
   original and Border only too, Offset set to Replace, Offset then Fillet chained, Fillet and Combine under all three modes, locked
   and open-line originals, several shapes at once, no sideways overflow at 300, 340 and 380 px), plus deliberate breakages. Stand-ins
   were used for the project store, NumberField, selectionKeys, arrange.ts and the two Rust geometry commands. **NOT tried in the real app.**
+
+### Update 2026-10-14: Offset "Put the result on layer".
+State first: main is at f42360a. The per-tool-originals update (1eaac6d) is on main, and Lee's local checks on main were all green (check-docs, typecheck, lint, 44 test files and 885 tests). This update is on branch offset-layer (merge to main once CI is green and it has been tried in the app).
+- **Offset has a "Put the result on layer" box** (ShapeToolsPanel.tsx, in the Offset group, above Original shapes). It starts on "Same layer as the original", which is what Offset did before. Pick a layer and every result of that Offset goes on it, so a cut line round an engraving can go straight onto a Cut layer. The message under the buttons says which layer it went on, e.g. Made 1 offset shape on the layer "Cut".
+- The choice is the layers a trace can use: Cut, Score and Fill layers, in the order of the Layers list (picture layers cannot hold outlines). It is kept while the tab is hidden, like the other Shape tools settings, but not between sessions. A pick whose layer has since been deleted counts as "Same layer as the original".
+- It works with all three Original shapes choices and with Border only. With Replace the result still takes the original's name and place in the Objects list, but goes on the layer you picked.
+- The logic is in apps/desktop-ui/src/lib/offsetLayer.ts (pure TypeScript, tests in apps/desktop-ui/tests/offsetLayer.test.ts). Combine and Fillet / Chamfer are unchanged: they still use the layer of the base shape or of the original.
+- Not done: the same choice for Fillet / Chamfer or Combine; presets that also remember threshold and sharpen (the next small item).
+- Checked in the assistant's sandbox (not the project's own tools): strict tsc (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, noUnusedLocals) on offsetLayer.ts, its tests and the changed ShapeToolsPanel.tsx, with typed stand-ins for what was not in the bundle; 10 new unit tests in a stand-in runner (4 of 6 deliberate breakages caught, the other 2 change nothing that can be seen); and 30 checks of the real Shape tools panel in headless Chromium with real React (default behaviour unchanged, Cut and Score picked, Inward, two shapes at once, Border only, Replace and Hide, back to the same layer, choice kept while the tab is hidden and when the selection changes, a deleted layer, Combine unaffected, no sideways overflow at 300 px). 6 deliberate breakages of the panel were each caught. Stand-ins were used for the project store, NumberField, corners.ts, transform.ts, arrange.ts, selectionKeys and the two Rust geometry commands (they return a box). The installer was run on copies of the real files: dry run, real run, second run, on main, CRLF, a drifted anchor and a stray file in the tree.
+- NOT run: the project's own vitest, ESLint and Prettier, check-docs, and the real app. Fillet / Chamfer, Combine and the array were not touched by this update. Expect 45 test files and 895 tests (44 and 885 before).
