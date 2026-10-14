@@ -1,67 +1,103 @@
 # MakerLaser: where we are up to
 
-## START HERE (written late on 2026-10-11)
+## START HERE (written at the end of 2026-10-14)
 
 This section is the current state and the plan. The sections below it are a log of earlier updates, kept for history. Where one of them
-says "Next task" or "this replaces ...", this section wins.
+says "Next task", "NOT confirmed", "NOT yet compiled", "on branch offset-layer" or "this replaces ...", this section wins.
 
 ### Where things stand
-
 - Project: MakerLaser, laser engraver software. A Tauri desktop app: a Rust workspace (packages and apps/rust-core) and a React plus
   TypeScript interface (apps/desktop-ui). Repo C:\Dev\MakerLaser, GitHub Wackojacko78/MakerLaser. The aim is software good enough for a
   wide range of makers to compete with LightBurn, not just for the owner. Test machine: TTS-55 Pro, 300 x 300 mm bed, GRBL.
-- On main, in order: material presets that remember overscan, outline and ramp (7355dd4); layer colour, lock and drag order, image
-  threshold and sharpen (9143ec3); Shape tools with Combine, Offset and a circular array, and Ctrl adding to the selection (56867fd);
-  bitmap trace with a Trace window (ba776f3); right-hand tabs Properties, Shape tools and Trace, with a zoomable Trace preview
-  (4ac9c8a); fillet and chamfer (5504700); an Original shapes setting (12c9f25).
-- Also on main (1eaac6d): per-tool-originals. Original shapes is one setting per tool: Combine and Fillet / Chamfer replace the shapes
-  they are made from, Offset keeps its original. Confirmed on 2026-10-14 from git log: main was at f42360a with nothing waiting to merge,
-  and git branch -a showed only main.
-- Checks: on 2026-10-14 Lee ran check-docs, typecheck, lint and the tests on main (f42360a): check-docs 0 errors and 0 warnings, typecheck and
-  lint clean, 44 test files and 885 tests passing. CI for the commits after 4ac9c8a (5504700, 12c9f25, 1eaac6d, f42360a) has not been seen: ask
-  for it. Lee has several times merged before CI finished: always ask him to wait for green.
+- On main, confirmed by Lee's own run on 2026-10-14 (git status clean, check-docs 0 errors and 0 warnings, typecheck and lint clean,
+  45 test files and 895 tests passing): material presets that remember overscan, outline and ramp; layer colour, lock and drag order,
+  image threshold and sharpen; Shape tools with Combine, Offset and a circular array; bitmap trace; the right-hand tabs; fillet and
+  chamfer (5504700); Original shapes as one setting per tool (1eaac6d); and the Offset choice "Put the result on layer" (lib/offsetLayer.ts).
+  Lee has tried the layer choice in the app.
+- Believed to be on main as well, NOT confirmed: the fix for the Sharp offset spike (a new function, tidy, in
+  packages/geometry/src/shape_ops.rs). Lee tried it in the app and said it fixed the spike. It went in on the same branch as the layer
+  choice, that branch no longer exists and his tree was clean, so it was almost certainly merged. The assistant has NOT seen the cargo test
+  output for the new tests, and has not seen CI for any commit after 4ac9c8a.
+- Pushed by Lee at the end of the night, merge and CI NOT known (border-chain is the branch name the assistant gave him; confirm it with
+  git branch -a): "Border only steps on to the next frame". It adds
+  lib/borderChain.ts and its tests, and changes ShapeToolsPanel.tsx and the docs. If it installed cleanly the front end has 46 test files
+  and 917 tests; Lee has not pasted the checks for it. He tried it in the app and found the problem described under "Open problem" below.
+- Always ask Lee first for: git status --short, git branch -a, git log --oneline -8, and whether CI is green. Lee often merges and deletes
+  a branch before the next message, and has several times merged before CI finished: always ask him to wait for green.
 
-### What the program can do now (so nothing is built twice)
+### What Offset does now (so nothing is built twice)
+- Offset (Shape tools tab, ShapeToolsPanel.tsx): Outward or Inward by a distance, sharp or round corners, Result "Whole shape" or
+  "Border only (a frame)", "Put the result on layer" (starts on "Same layer as the original"; the choices are the Cut, Score and Fill layers),
+  and Original shapes (Replace, Hide, Leave; Offset starts on Leave). The boolean and offset work is done in Rust
+  (packages/geometry/src/shape_ops.rs, commands in apps/rust-core/src/commands/geometry_cmds.rs); the planning is TypeScript.
+- Border only used to treat a frame as an ordinary shape. A frame is a ring (an outline with a hole), and Offset moves a hole the other way,
+  so a second Outward also made a band INSIDE the original, and a second Inward on a ring narrower than the distance returned the whole ring
+  again on top of itself. Lee found this with a screenshot (three Outward clicks on a rectangle left rings inside it).
+- The fix (lib/borderChain.ts, state in ShapeToolsPanel.tsx): the panel remembers, for each frame Border only makes, the shape it came from
+  (the base) and where its band lies as signed distances from the base (0 to 2 is the first band outside, -2 to 0 the first band inside).
+  Outward on a frame steps to the band beyond (2 to 4, then 4 to 6); Inward steps back towards the base and on inside it. Every band is the
+  base offset by two distances with the inner one cut out of the outer, so nothing builds up from the last result. Limits: the memory is in
+  the panel only (lost when the app closes; a frame that was moved or edited is treated as an ordinary shape again); it keeps the last 100
+  frames; a band may reach at most 1000 mm from its base; Fillet, Chamfer and Combine on a frame are not changed.
+- The Sharp spike: Clipper2 snaps every result to a 0.01 mm grid, so a result carries edges 0.01 mm long, and offsetting such a shape again
+  with Sharp (miter) corners could throw one point hundreds of millimetres away (found with two throwaway Rust test files on Lee's PC:
+  13 of 18 in / out sequences on ellipses failed, Round corners never did, a 30 mm circle never did). offset_shape now tidies each path first
+  (drops points closer than 0.05 mm to the one before and points within 0.002 mm of a straight line). The Kerf offset (offset_path, miter
+  joins) was NOT changed and has the same kind of exposure in principle; untested.
 
+### Open problem: Border only with Original shapes on Replace "keeps 2 layers active" (Lee's words, last message of the night)
+- NOT understood yet, so nothing was changed for it. Lee said, after trying the border-chain update: "the border only keeps 2 layers active
+  when setting it to remove". Replace is what the app calls the setting he means. Do not guess a fix: ask first.
+- What to ask: a screenshot of the Objects list and the canvas after three Outward clicks with Original shapes on Replace, and what he means
+  by "layers" (objects in the Objects list, or layers in the Layers panel, or outlines on the canvas).
+- Readings to check, none confirmed: (a) he sees two OUTLINES, which is right, because a frame is an outer outline and an inner outline;
+  (b) the previous frame is not replaced, so two frames stay, which would be a bug; (c) the first click left the original and the frame
+  both in place. The assistant's browser tests (with a stand-in for the Rust geometry that is exact only for rectangles) showed ONE object
+  left after each Replace click, so if two objects remain in the real app something differs between the stand-in and the real Rust or the
+  real project store. Ask which shape he used (an ellipse? a rectangle? a result of an earlier tool?) and the Corners setting.
+- Older, still unanswered: Lee's first report said that choosing a new layer "changes the previous layer cut/engrave type". The code only
+  moves the shape onto the layer chosen; nothing edits a layer's own settings. Ask whether the shape moved layers (expected) or a layer's
+  own settings changed. His first report also said Border only was "not replacing with the result": Offset starts on Leave, which explains it.
+
+### What the program can do now
 - Layers: Cut, Score, Fill and Image kinds, each with speed, power, passes, air assist (M8 and M9), overscan, ramp, outline, colour,
   lock artwork, drag to reorder, run order. Material presets that remember overscan, outline and ramp. Image layers: threshold and sharpen.
-- Shape tools tab (apps/desktop-ui/src/components/ShapeToolsPanel.tsx, logic in lib/shapeOps.ts, lib/corners.ts and lib/originals.ts):
-  Union, Subtract (with a "Subtract from" choice), Intersect, Exclude; Offset outward or inward, with Border only; Fillet and Chamfer;
-  Circular array; and an Original shapes setting in each of Combine, Offset and Fillet / Chamfer (Replace, Hide or Leave). Results are
-  plain straight-sided outlines. Boolean and offset run in Rust (packages/geometry, commands in apps/rust-core); the rest is TypeScript.
+- Shape tools tab (apps/desktop-ui/src/components/ShapeToolsPanel.tsx, logic in lib/shapeOps.ts, lib/corners.ts, lib/originals.ts, lib/offsetLayer.ts
+  and lib/borderChain.ts): Union, Subtract (with a "Subtract from" choice), Intersect, Exclude; Offset as above; Fillet and Chamfer; Circular
+  array; Original shapes in each of Combine, Offset and Fillet / Chamfer. Results are plain straight-sided outlines. Open lines are left out
+  of Offset and Fillet.
 - Trace tab: picture to outlines, in TypeScript (lib/bitmapTrace.ts), with a live preview you can zoom and drag.
 - Right-hand panel tabs (components/RightTabs.tsx). Toolbar buttons switch to the tabs. Ctrl or Shift adds to the selection.
 
 ### The plan, in the order agreed with Lee
-
-Lee is keen to do ALL of these. Done: layers and image panel, boolean / offset / arrays, bitmap trace, fillets and chamfers.
-
-1. Hardware tests and release 0.2.0. Needs the laser and the focus cylinder: Lee's job, not the assistant's. Untried on real
-   hardware: overscan, Start From and Job Origin, fill outline, ramped power, what Pause does with the beam. Add a VERIFICATION.md
-   row per result, then cut 0.2.0.
-2. Done on branch offset-layer (see the last block of this file; merge once CI is green): a "Put the result on layer" choice for Offset (a cut line round an engraving usually belongs on a different layer;
-   Trace already has one). Then maybe: presets that also remember threshold and sharpen.
-3. Step 7, cut tabs and bridges: small gaps left in a cut line so a part stays attached to the sheet. Width, count or spacing, and
-   a preview of where they fall. Self-contained, so it can go before node editing. Needs the toolpath code.
-4. Step 6, node editing. The big one. Paths are lists of straight segments today, so a Bezier handle has nothing to hold.
-   Write a short DESIGN NOTE first and agree it with Lee: the new path model (segments that are lines or cubic curves); what loads and
-   saves (old projects must open unchanged); where curves are flattened (CAM, offset, boolean, trace and corners all expect straight
-   segments); and how editing on the canvas works (select a node, drag, add and remove, line to curve, handles). Then build in stages,
-   each its own checked update. After it, single corners can be picked for fillets.
-5. Step 8: library and templates (one "reusable things" item), then camera (needs lens calibration and a camera to test with).
-6. Step 9: rotary, only when there is hardware to check it on.
-
-Other ideas not started: a live preview of Offset / Fillet / Chamfer on the canvas before pressing the button; a "repeat last
-action" button; a choice of grayscale conversion for pictures; Layers as its own tab; remembering the selected tab, the preview
-zoom and the tool settings between sessions; Arrange and Test grid are still pop-up dialogs. Known limits: Fillet makes a plain outline
-(a rectangle loses its own Radius box; a very large size can make a result overlap itself); open lines are left out of Offset and Fillet.
+Lee is keen to do ALL of these. Done: layers and image panel, boolean / offset / arrays, bitmap trace, fillets and chamfers, the Offset layer
+choice, Border only stepping.
+1. FIRST JOB: the git questions above, CI, and (if not seen) the output of npm run rust:test for the tidy tests. Then the open problem above.
+2. Hardware tests and release 0.2.0. Needs the laser and the focus cylinder: Lee's job, not the assistant's. Untried on real hardware:
+   overscan, Start From and Job Origin, fill outline, ramped power, what Pause does with the beam. Add a VERIFICATION.md row per result,
+   then cut 0.2.0.
+3. Small and quick: presets that also remember threshold and sharpen. Also worth a look: does the Kerf offset (miter joins) need the same
+   tidying as Offset, and should Border only frames be remembered in the project file (needs a field in the Rust project format).
+4. Step 7, cut tabs and bridges: small gaps left in a cut line so a part stays attached to the sheet. Width, count or spacing, and a
+   preview of where they fall. Self-contained, so it can go before node editing. Needs the toolpath code.
+5. Step 6, node editing. The big one. Paths are lists of straight segments today, so a Bezier handle has nothing to hold. Write a short
+   DESIGN NOTE first and agree it with Lee: the new path model (segments that are lines or cubic curves); what loads and saves (old
+   projects must open unchanged); where curves are flattened (CAM, offset, boolean, trace and corners all expect straight segments); and how
+   editing on the canvas works (select a node, drag, add and remove, line to curve, handles). Then build in stages, each its own checked
+   update. After it, single corners can be picked for fillets.
+6. Step 8: library and templates (one "reusable things" item), then camera (needs lens calibration and a camera to test with).
+7. Step 9: rotary, only when there is hardware to check it on.
+Other ideas not started: a live preview of Offset / Fillet / Chamfer on the canvas before pressing the button; a "repeat last action"
+button; a choice of grayscale conversion for pictures; Layers as its own tab; remembering the selected tab, the preview zoom and the tool
+settings between sessions; Arrange and Test grid are still pop-up dialogs. Known limits: Fillet makes a plain outline (a rectangle loses its
+own Radius box; a very large size can make a result overlap itself).
 
 ### How to start tomorrow
 
-The assistant's sandbox is empty at the start of every session and can also reset in the middle of one. Nothing is remembered except this
-file, the saved memories and the conversation history. So:
+The assistant's sandbox is empty at the start of every session and can also reset in the middle of one (it did on 2026-10-14). Nothing is
+remembered except this file, the saved memories and the conversation history. So:
 
-1. Lee uploads STATUS.md (this file) and says what he wants. The assistant reads this section first and checks the state with git log --oneline -5 and git branch -a.
+1. Lee uploads STATUS.md (this file) and says what he wants. The assistant reads this section first and does the FIRST JOB above.
 2. For each piece of work the assistant asks for a bundle of the files it needs. Lee makes it with the Bundle function below and uploads
    it. Uploads can be renamed to end in .txt if they are blocked; very large bundles (over about 300 KB) sometimes fail, so ask for a
    smaller one. The assistant rebuilds the files from the bundle with a few lines of Python (split on the "===== path =====" lines).
@@ -77,7 +113,16 @@ The Bundle function (paste into PowerShell in the repo root, then call it with a
       "{0}: {1:N0} KB" -f $out, ((Get-Item $out).Length / 1KB)
     }
 
-Files to ask for, ready to paste. For the Offset layer choice and cut tabs (the next two jobs):
+Files to ask for, ready to paste. For the Border only problem (the open problem above):
+
+    Bundle C:\Dev\bundle-border.txt @(
+      'apps/desktop-ui/src/components/ShapeToolsPanel.tsx', 'apps/desktop-ui/src/lib/borderChain.ts',
+      'apps/desktop-ui/src/lib/originals.ts', 'apps/desktop-ui/src/lib/shapeOps.ts', 'apps/desktop-ui/src/lib/offsetLayer.ts',
+      'apps/desktop-ui/src/state/projectStore.ts', 'apps/desktop-ui/src/lib/tauri.ts', 'apps/desktop-ui/src/types/domain.ts',
+      'apps/desktop-ui/tests/borderChain.test.ts', 'docs/user-guide.md', 'CHANGELOG.md'
+    )
+
+For cut tabs (and presets that remember threshold and sharpen):
 
     $files = @(
       'apps/desktop-ui/src/components/ShapeToolsPanel.tsx', 'apps/desktop-ui/src/lib/shapeOps.ts',
@@ -88,7 +133,7 @@ Files to ask for, ready to paste. For the Offset layer choice and cut tabs (the 
       'packages/common/src/layers.rs', 'packages/common/src/operations.rs', 'packages/common/src/objects.rs',
       'packages/common/src/project.rs', 'packages/common/src/geometry_types.rs',
       'apps/rust-core/src/commands/project_cmds.rs', 'apps/rust-core/src/main.rs',
-      'docs/user-guide.md', 'docs/api.md', 'docs/roadmap.md', 'CHANGELOG.md', 'STATUS.md'
+      'docs/user-guide.md', 'docs/api.md', 'docs/roadmap.md', 'CHANGELOG.md'
     )
     Bundle C:\Dev\bundle-tabs-cut.txt $files
 
@@ -101,45 +146,57 @@ packages/project/src/mlp.rs, apps/desktop-ui/src/canvas/WorkspaceCanvas.tsx and 
 format and architecture documents in docs.
 
 ### How the assistant works with Lee (keep doing this)
-
 - Lee works on Windows in PowerShell, wants commands he can paste, short answers for simple things and detail for risky or unclear
   ones, and a friendly informal tone. He tries every update in the app and reports what feels clumsy: treat that as the design brief.
+  When a report is unclear ("keeps 2 layers active"), ask for a screenshot of the Objects list and what he meant. Do not guess.
 - Each piece of work is ONE install script, written as an ES module that Lee saves in C:\Dev and runs from the repo root:
   node C:\Dev\apply-something.mjs --dry-run, then without --dry-run. The script: refuses to run on main (--force overrides); does not need
   a clean tree; checks every change first and writes NOTHING unless all of them fit; changes a file by an exact regular-expression
   anchor that must match exactly once; keeps each file's line endings; can be run twice (the second run does nothing); adds a block to
   STATUS.md; and updates docs/user-guide.md and CHANGELOG.md. Documentation edits that cannot find their text are skipped with a note
-  instead of stopping everything.
+  instead of stopping everything. When the script replaces a whole function, it first checks that the function is the version it was
+  written against and stops with a message if Lee has changed it.
 - A script that replaces a whole existing file must tolerate the end of the file: PowerShell's Set-Content adds a newline, so a bundle
   copy of a file has one more blank line at the end than the real file. Compare ignoring trailing newlines, and fall back to small
   anchored edits if the file differs somewhere that does not matter. (This cost a round trip once.)
 - Patterns for docs edits are regular expressions: escape every literal piece (asterisks, brackets, dots). Build them from the text
-  with each run of whitespace matching any whitespace. (This broke an installer twice.)
+  with each run of whitespace matching any whitespace. (This broke an installer twice.) Check that the marker text a script uses to decide
+  "already done" is really in the text it adds (one marker did not match, so a second run would have added a line twice).
 - Every update ends with the git steps: git add -A, commit, push, WAIT for CI to go green on GitHub, switch to main, pull, merge the
-  branch, push, delete the branch locally and on GitHub, git fetch --prune. USE THE REAL BRANCH NAME in the merge lines (the merge
-  failed once because an old name was pasted).
+  branch, push, delete the branch locally and on GitHub, git fetch --prune. USE THE REAL BRANCH NAME in the merge lines, and ask first
+  which branches exist: on 2026-10-14 Lee was told to switch to a branch that had already been merged and deleted.
 - Tell Lee exactly what to run to check it: node scripts/check-docs.mjs, npm run ui:typecheck, npm run ui:lint, npm run ui:test (and
   npm run rust:test, npm run rust:lint and npm run rust:fmt when Rust changed), then a short list of things to try in npm run dev.
+- Throwaway Rust diagnostics: a test file in packages/geometry/tests, run from packages/geometry with cargo test --test NAME -- --nocapture,
+  deleted afterwards and never committed. Give each file a distinct name and tell Lee the exact folder: on 2026-10-14 he ran the old file
+  twice because a second file had a similar name and landed in the wrong folder. Ask him to confirm it with Select-String on the test
+  function name before running. If a download link does not show, present the file again under a new name.
+- Warn Lee not to run git checkout . or git restore . while work is uncommitted.
 - Never call something verified until it has been run. Say plainly what was and was not tried. Keep STATUS.md up to date, and make
   every backticked file name in it a file that exists (check-docs warns about the rest).
 
 ### Working notes for the assistant's sandbox
-
 - Available: Python (shapely for independent geometry checks, PIL), Node, TypeScript (tsc), React and react-dom 19 development builds
-  in /opt/oai-docgen/node_modules, and a headless Chromium at /opt/pw-browsers (run it with Playwright for Python). There is no Rust, no
-  cargo, no PowerShell, and no vitest.
+  in /opt/oai-docgen/node_modules, and a headless Chromium under /opt/pw-browsers. There is no Rust, no cargo, no PowerShell, no vitest, and
+  no Clipper (shapely is the independent check for geometry).
+- Playwright for Python looks for a browser version that is not installed: pass executable_path to the chromium_headless_shell-1208 binary
+  (find it with glob) and args ["--no-sandbox"]. A page made with set_content has no crypto.randomUUID: add a small polyfill in the test harness.
 - How each update was checked, and it was worth it every time: strict tsc (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes,
-  noUnusedLocals) with small typed stubs for anything not in the bundle; a tiny stand-in for vitest (describe, it, expect) to run the
-  unit tests; real browser tests that bundle the real React panels with a few lines of Node (a mini bundler) and drive them with
-  Playwright and real mouse and wheel input, using stand-ins for the project store and the Tauri calls; and mutation checks, where the
-  code is broken on purpose in several ways to prove the tests fail. Several "passing" tests turned out to test nothing until this was done.
-- The tool call limit is 60 seconds. Run slow browser tests in the background with nohup and read the output after a sleep.
+  noUnusedLocals) with small typed stubs for anything not in the bundle; a tiny stand-in for vitest (describe, it, expect, toBe, toEqual,
+  toBeNull, toHaveLength, toContain, toBeGreaterThan) to run the unit tests; real browser tests that bundle the real React panels with a few
+  lines of Node (a mini bundler that follows require calls and maps the @/ alias) and drive them with Playwright, using stand-ins for the
+  project store (useSyncExternalStore), NumberField, transform.ts, arrange.ts, selectionKeys.ts, corners.ts and the Tauri calls; and mutation
+  checks, where the compiled code is broken on purpose in several ways to prove the tests fail. Several "passing" tests turned out to test
+  nothing until this was done. The stand-in for the two Rust geometry commands is exact only for rectangles: it cannot find a bug in the
+  real Rust, and nothing about ellipses or other curves can be claimed from it.
+- The tool call limit is 60 seconds. Run slow browser or mutation tests in the background with nohup and read the output after a sleep.
 - Rebuild the user's files from the bundle and run each installer on that copy: dry run, real run, second run, on main, with a drifted
-  anchor, with CRLF, with a stray file in the tree. Compare the installed files byte for byte with the ones that were tested.
-- Files in the sandbox can vanish between two commands. Write the deliverable to /mnt/user-data/outputs early, and keep the generator
-  scripts small enough to rewrite.
+  anchor, with CRLF, with a stray file in the tree, with the docs text changed. Compare the installed files byte for byte with the ones that
+  were tested.
+- Files in the sandbox can vanish between two commands, and the whole sandbox was reset in the middle of a session on 2026-10-14. Write the
+  deliverable to /mnt/user-data/outputs early, and keep the generator scripts small enough to rewrite.
 - Rust cannot be compiled here. Say so. Write Rust carefully, give Lee the cargo commands, and expect to fix a compile slip or a failing
-  test from his output (it happened once: two shapes that grew into each other were not merged).
+  test from his output. A Python port of a Rust function is only a check of the idea, not of the Rust.
 
 ---
 
