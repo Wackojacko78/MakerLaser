@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { PanelField, PanelGroup, PanelTick, fullWidth, hintStyle, twoColumns } from '@/components/PanelParts';
+import { bandName, bandNote, bandProblem, chainAfter, chainEntryFor, nextBand, objectSignature, planBand, type Band, type BorderChain, type ChainEntry } from '@/lib/borderChain';
 import {
   CORNER_WHICH,
   CORNER_WHICH_LABELS,
@@ -48,7 +49,6 @@ import {
   failure,
   offsetName,
   planBoolean,
-  planBorder,
   planCircularArray,
   planOffset,
   resultObject,
@@ -93,6 +93,8 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
   const [borderOnly, setBorderOnly] = useState(false);
   // Offset: which layer the result goes on. SAME_LAYER (empty) keeps each result on the layer of the shape it came from.
   const [offsetLayer, setOffsetLayer] = useState<string>(SAME_LAYER);
+  // Border only: what each frame is a band of, so another click on it steps on from the same shape (lib/borderChain.ts).
+  const [borderChain, setBorderChain] = useState<BorderChain>(() => new Map());
   const [count, setCount] = useState(6);
   const [angle, setAngle] = useState(360);
   // null: the middle of the bed, whatever the bed is at the moment.
@@ -209,25 +211,48 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       return;
     }
     const delta = direction * distance;
+    // Border only: a frame made by an earlier click is stepped on from the shape it was made from, so another click
+    // makes the next band instead of moving the frame's hole as if it were a shape (lib/borderChain.ts).
+    const chained = plan.items.map((item) => {
+      const object = borderOnly ? project.objects.find((o) => o.id === item.id) : undefined;
+      return object ? chainEntryFor(borderChain, object) : null;
+    });
+    const bands = plan.items.map((_, i) => nextBand(chained[i] ?? null, direction, distance));
+    const tooFar = borderOnly ? bands.map((b) => bandProblem(b)).find((p) => p !== null) : undefined;
+    if (tooFar) {
+      tell(false, tooFar);
+      return;
+    }
     setBusy(true);
     try {
-      const moved = await Promise.all(plan.items.map((item) => api.offsetPaths(item.paths, delta, rounded)));
-      // A border is the band between the old outline and the new one, with the middle left empty.
+      const moved = borderOnly ? [] : await Promise.all(plan.items.map((item) => api.offsetPaths(item.paths, delta, rounded)));
+      // A border is the band between two outlines of the shape (the one it was made from), with the middle left empty.
       const results: Path2D[][] = [];
       const wholeShape: string[] = [];
+      const steppedOn: Band[] = [];
+      const frames = new Map<string, { base: Path2D[]; baseName: string; band: Band; name: string | undefined }>();
       for (const [i, item] of plan.items.entries()) {
-        const newPaths = moved[i] ?? [];
         if (!borderOnly) {
-          results.push(newPaths);
+          results.push(moved[i] ?? []);
           continue;
         }
-        const border = planBorder(item.paths, newPaths, delta);
-        if (border.kind === 'direct') {
-          if (border.paths.length > 0) wholeShape.push(item.name);
+        const entry = chained[i] ?? null;
+        const base = entry ? entry.base : item.paths;
+        const band = bands[i] ?? nextBand(null, direction, distance);
+        const edge = (at: number): Promise<Path2D[]> => (at === 0 ? Promise.resolve(base) : api.offsetPaths(base, at, rounded));
+        const [outer, inner] = await Promise.all([edge(band.hi), edge(band.lo)]);
+        const border = planBand(outer, inner);
+        if (border.kind === 'subtract') {
+          results.push(await api.booleanPaths('subtract', border.shapes));
+        } else if (border.kind === 'whole') {
+          wholeShape.push(item.name);
           results.push(border.paths);
         } else {
-          results.push(await api.booleanPaths('subtract', border.shapes));
+          results.push([]);
         }
+        const baseName = entry ? entry.baseName : item.name;
+        if (entry) steppedOn.push(band);
+        frames.set(item.id, { base, baseName, band, name: entry ? bandName(baseName, band) : undefined });
       }
       const shapes: Array<{ item: (typeof plan.items)[number]; shape: WorkspaceObject }> = [];
       const vanished: string[] = [];
@@ -248,7 +273,7 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
       const removed = new Set(originals.remove);
       let z = useProjectStore.getState().nextZIndex();
       const made: WorkspaceObject[] = shapes.map(({ item, shape }) => {
-        const look = resultLook(removed.has(item.id), item.name, offsetName(item.name, delta, borderOnly), zOf(item.id), z);
+        const look = resultLook(removed.has(item.id), item.name, frames.get(item.id)?.name ?? offsetName(item.name, delta, borderOnly), zOf(item.id), z);
         if (look.zIndex === z) z += 1;
         return { ...shape, name: look.name, z_index: look.zIndex };
       });
@@ -257,11 +282,25 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
         p.objects.push(...made);
       });
       setSelection(made.map((o) => o.id));
+      if (borderOnly) {
+        // Remember what each frame is a band of, so the next click on it steps on from the same shape.
+        const added: Array<readonly [string, ChainEntry]> = [];
+        shapes.forEach(({ item }, k) => {
+          const frame = frames.get(item.id);
+          const result = made[k];
+          if (frame && result) {
+            added.push([result.id, { base: frame.base, baseName: frame.baseName, lo: frame.band.lo, hi: frame.band.hi, sig: objectSignature(result) }]);
+          }
+        });
+        setBorderChain((old) => chainAfter(old, added));
+      }
       const what = borderOnly ? 'border' : 'offset';
       const notes: string[] = [];
       if (vanished.length > 0) notes.push(`${vanished.map((n) => `"${n}"`).join(', ')} vanished (smaller than the offset).`);
       if (wholeShape.length > 0) notes.push(`${wholeShape.map((n) => `"${n}"`).join(', ')} is smaller than the offset, so its border is the whole shape.`);
       if (plan.skipped.length > 0) notes.push(`${plan.skipped.map((n) => `"${n}"`).join(', ')} left out (not a closed shape).`);
+      const firstStep = steppedOn[0];
+      if (firstStep) notes.push(steppedOn.length === 1 ? bandNote(firstStep) : 'Each frame was stepped on from the shape it came from.');
       const about = originalsNote(originals, 'offset');
       if (about) notes.push(about);
       tell(true, [`Made ${made.length} ${what} ${made.length === 1 ? 'shape' : 'shapes'}${offsetWhere}.`, ...notes].join(' '));
@@ -399,7 +438,7 @@ export function ShapeToolsPanel({ active }: { active: boolean }) {
         </PanelField>
         {borderOnly && (
           <p className="hint" style={hintStyle}>
-            A frame: the band between the old outline and the new one, with the middle empty. Engraving it leaves the middle alone.
+            A frame: the band between the old outline and the new one, with the middle empty. Engraving it leaves the middle alone. Press Outward or Inward again on the frame to step to the next band out (or in), measured from the shape it came from.
           </p>
         )}
         <PanelField label="Put the result on layer" title="Where the new outline goes. A cut line round an engraving usually belongs on a Cut layer.">

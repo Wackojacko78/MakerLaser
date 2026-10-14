@@ -27,6 +27,7 @@
   The two "Keep the original" ticks are gone.
 - Shape tools: Offset has a "Put the result on layer" choice, so a cut line round an engraving can go straight onto a Cut layer.
   It starts on "Same layer as the original", which is what Offset did before.
+- Shape tools: pressing Outward or Inward again on a Border only frame steps on to the next frame, measured from the shape it came from, so three Outward clicks give three frames one outside the other.
 - Ctrl (Cmd on a Mac) now works like Shift for adding to the selection: clicking on the canvas, clicking in
   the Objects list, and box select.
 - The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.
@@ -87,6 +88,7 @@
 
 ### Fixed
 - Choosing the generic serif or monospace font drew sans-serif.
+- Shape tools: pressing Outward again on a Border only frame treated the frame's hole as a shape to move, so it also made a band inside the original shape (and more with every click). Each click now makes the next band measured from the shape the frame came from.
 - Shape tools: offsetting a shape with Sharp corners, one way and then back the other (an ellipse Inward once and then Outward a few times, say), could throw out a spike hundreds of millimetres long. Clipper2 leaves edges 0.01 mm long in its results, and the next pointed offset mishandled them; each shape is now tidied before it is offset. Round corners were never affected.
 
 ## 0.1.0
