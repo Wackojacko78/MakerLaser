@@ -121,6 +121,18 @@ pub struct ProjectSettings {
     /// Which point of the job sits on the head when `start_from` is not `absolute`.
     #[serde(default)]
     pub job_origin: JobOrigin,
+    /// Fill layers: burn the filled objects nearest first, so the head does not cross the bed between
+    /// them, instead of in the order they were drawn in. On for new projects; a project saved without
+    /// it loads with it off, so its jobs run exactly as before.
+    #[serde(default)]
+    pub order_fills_by_distance: bool,
+    /// Cut and Score layers: finish each part (the holes inside it, then its outline) before starting
+    /// the next, instead of every hole on the sheet first. Off unless chosen.
+    #[serde(default)]
+    pub cut_part_by_part: bool,
+    /// Cut and Score layers: where two lines lie on top of each other, cut them once. Off unless chosen.
+    #[serde(default)]
+    pub cut_shared_lines_once: bool,
 }
 
 impl Default for ProjectSettings {
@@ -133,6 +145,9 @@ impl Default for ProjectSettings {
             custom_run_order: false,
             start_from: StartFrom::Absolute,
             job_origin: JobOrigin::BottomLeft,
+            order_fills_by_distance: true,
+            cut_part_by_part: false,
+            cut_shared_lines_once: false,
         }
     }
 }
@@ -334,6 +349,42 @@ mod tests {
         let s: ProjectSettings = serde_json::from_str(json).unwrap();
         assert!(!s.custom_run_order);
         assert!(!ProjectSettings::default().custom_run_order);
+    }
+
+    #[test]
+    fn the_path_planning_settings_are_on_or_off_as_designed_and_old_files_load_with_them_off() {
+        let new = ProjectSettings::default();
+        assert!(new.order_fills_by_distance);
+        assert!(!new.cut_part_by_part);
+        assert!(!new.cut_shared_lines_once);
+        // A project saved before the settings existed keeps working exactly as it did: all off.
+        let json = r#"{"units":"mm","grid_spacing_mm":10.0,"show_grid":true,"show_origin":true}"#;
+        let old: ProjectSettings = serde_json::from_str(json).unwrap();
+        assert!(
+            !old.order_fills_by_distance && !old.cut_part_by_part && !old.cut_shared_lines_once
+        );
+    }
+
+    #[test]
+    fn the_path_planning_settings_survive_a_round_trip_under_the_names_the_frontend_expects() {
+        let s = ProjectSettings {
+            order_fills_by_distance: false,
+            cut_part_by_part: true,
+            cut_shared_lines_once: true,
+            ..ProjectSettings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"order_fills_by_distance\":false"), "{json}");
+        assert!(json.contains("\"cut_part_by_part\":true"), "{json}");
+        assert!(json.contains("\"cut_shared_lines_once\":true"), "{json}");
+        let back: ProjectSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn a_new_project_orders_its_fills_nearest_first() {
+        let p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        assert!(p.settings.order_fills_by_distance);
     }
 
     #[test]

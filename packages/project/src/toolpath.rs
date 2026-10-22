@@ -10,6 +10,9 @@
 //!   until the final pass.
 //! * **Kerf compensation** grows outer boundaries and shrinks holes by half the kerf.
 //! * **Fill** uses an even-odd scanline fill with serpentine (alternating) direction.
+//! * **Path planning** (see `pathopt.rs`) is chosen per project: filled objects can be burned nearest first, a
+//!   part can be cut whole (holes, then its outline) before the next, and a line that lies on top of
+//!   another is cut once.
 //! * **Raster** resamples the image through the object's full affine transform, applies the
 //!   adjustments and dithering, and emits scan-line runs (bidirectional if requested).
 
@@ -25,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{ProjectError, Result};
+
+mod pathopt;
 
 const MAX_RASTER_PIXELS: u64 = 60_000_000;
 const MAX_SEGMENTS: usize = 4_000_000;
@@ -513,7 +518,13 @@ pub fn generate_toolpath(
             } => {
                 let paths = collect_paths(&objects, object_ids);
                 let mut final_paths: Vec<Path2D> = Vec::new();
-                for (path, depth) in order_paths(paths, params.cut_order, b.cursor) {
+                let ordered = order_for_job(
+                    paths,
+                    params.cut_order,
+                    b.cursor,
+                    project.settings.cut_part_by_part,
+                );
+                for (path, depth) in ordered {
                     if params.kerf_mm > 0.0 && path.closed {
                         let side = if depth % 2 == 1 {
                             KerfSide::Inward
@@ -532,6 +543,19 @@ pub fn generate_toolpath(
                         final_paths.push(path);
                     }
                 }
+                if project.settings.cut_shared_lines_once {
+                    if params.kerf_mm > 0.0 {
+                        // Kerf compensation moves every outline, so edges that were shared no longer meet.
+                        warnings.push(format!(
+                            "Cut lines that lie on top of each other once was not applied to '{}': its kerf compensation moves every outline.",
+                            layer.name
+                        ));
+                    } else {
+                        let shared = pathopt::remove_shared_lines(&final_paths);
+                        note_shared_lines(&mut warnings, &layer.name, &shared);
+                        final_paths = shared.paths;
+                    }
+                }
                 for _ in 0..passes {
                     for p in &final_paths {
                         b.path(p, MoveKind::Cut, layer);
@@ -542,10 +566,20 @@ pub fn generate_toolpath(
                 object_ids, params, ..
             } => {
                 let paths = collect_paths(&objects, object_ids);
-                let ordered: Vec<Path2D> = order_paths(paths, params.cut_order, b.cursor)
-                    .into_iter()
-                    .map(|(p, _)| p)
-                    .collect();
+                let mut ordered: Vec<Path2D> = order_for_job(
+                    paths,
+                    params.cut_order,
+                    b.cursor,
+                    project.settings.cut_part_by_part,
+                )
+                .into_iter()
+                .map(|(p, _)| p)
+                .collect();
+                if project.settings.cut_shared_lines_once {
+                    let shared = pathopt::remove_shared_lines(&ordered);
+                    note_shared_lines(&mut warnings, &layer.name, &shared);
+                    ordered = shared.paths;
+                }
                 for _ in 0..passes {
                     for p in &ordered {
                         if layer.ramp_mm > 0.0 {
@@ -559,6 +593,8 @@ pub fn generate_toolpath(
             LaserOperation::Fill {
                 object_ids, params, ..
             } => {
+                // First work out the scan lines of every object...
+                let mut jobs: Vec<FillJob> = Vec::new();
                 for id in object_ids {
                     let Some(obj) = objects.get(id) else { continue };
                     let closed: Vec<Path2D> = world_paths(obj)
@@ -584,11 +620,22 @@ pub fn generate_toolpath(
                             )),
                         }
                     }
+                    jobs.push(FillJob { closed, rows });
+                }
+                // ...then, if asked, burn the nearest object first instead of the first one drawn.
+                if project.settings.order_fills_by_distance && jobs.len() > 1 {
+                    let stops: Vec<pathopt::Stop> = jobs.iter().map(FillJob::stop).collect();
+                    let order = pathopt::order_stops(&stops, b.cursor);
+                    let mut slots: Vec<Option<FillJob>> = jobs.into_iter().map(Some).collect();
+                    jobs = order.into_iter().filter_map(|i| slots[i].take()).collect();
+                }
+                for job in &jobs {
+                    let (closed, rows) = (&job.closed, &job.rows);
                     for _ in 0..passes {
                         if layer.overscan_mm > 0.0 {
-                            b.scan_lines(&rows, MoveKind::Fill, layer, &bed);
+                            b.scan_lines(rows, MoveKind::Fill, layer, &bed);
                         } else {
-                            for row in &rows {
+                            for row in rows {
                                 for (a, z) in row {
                                     b.draw(*a, *z, MoveKind::Fill, layer);
                                 }
@@ -768,6 +815,142 @@ fn nearest_neighbor(items: Vec<(Path2D, u32)>, start: Point2) -> Vec<(Path2D, u3
         out.push((path, depth));
     }
     out
+}
+
+/// Orders paths for a Cut or Score layer: part by part when asked (see `order_part_by_part`), and
+/// otherwise as `order_paths` does. A layer that keeps the order the paths were drawn in stays so.
+fn order_for_job(
+    paths: Vec<Path2D>,
+    strategy: CutOrderStrategy,
+    start: Point2,
+    part_by_part: bool,
+) -> Vec<(Path2D, u32)> {
+    if part_by_part && strategy != CutOrderStrategy::AsDrawn {
+        order_part_by_part(paths, start)
+    } else {
+        order_paths(paths, strategy, start)
+    }
+}
+
+/// Finishes one part before starting the next. A part is an outline together with everything inside
+/// it (holes, islands in holes, lines); inside a part the deepest paths come first, so every hole is
+/// still cut before the outline round it. The parts themselves are taken in an order that keeps the
+/// laser-off travel short, judged by where their outlines are. Returns each path with its nesting
+/// depth, like `order_paths`.
+fn order_part_by_part(paths: Vec<Path2D>, start: Point2) -> Vec<(Path2D, u32)> {
+    let n = paths.len();
+    let depths = nesting_depths(&paths);
+    let boxes: Vec<Option<BoundingBox>> = paths.iter().map(|p| p.bounding_box()).collect();
+    // The outermost path that holds each path (a path that is not inside another holds itself).
+    let mut root_of: Vec<usize> = (0..n).collect();
+    for i in 0..n {
+        if depths[i] == 0 {
+            continue;
+        }
+        let Some(bi) = boxes[i] else { continue };
+        let probe = paths[i].points[0];
+        for j in 0..n {
+            if j != i
+                && depths[j] == 0
+                && paths[j].closed
+                && paths[j].points.len() >= 3
+                && boxes[j].map_or(false, |bj| bj.contains_box(&bi))
+                && point_in_polygon(probe, &paths[j])
+            {
+                root_of[i] = j;
+                break;
+            }
+        }
+    }
+    let mut part_of_root: HashMap<usize, usize> = HashMap::new();
+    let mut parts: Vec<Vec<usize>> = Vec::new();
+    let mut roots: Vec<usize> = Vec::new();
+    for i in 0..n {
+        let root = root_of[i];
+        let k = match part_of_root.get(&root) {
+            Some(&k) => k,
+            None => {
+                parts.push(Vec::new());
+                roots.push(root);
+                part_of_root.insert(root, parts.len() - 1);
+                parts.len() - 1
+            }
+        };
+        parts[k].push(i);
+    }
+    // Each part is judged by the middle of its outline.
+    let stops: Vec<pathopt::Stop> = roots
+        .iter()
+        .map(|&r| {
+            let centre = boxes[r].map_or(Point2::ZERO, |b| {
+                Point2::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0)
+            });
+            pathopt::Stop {
+                start: centre,
+                end: centre,
+            }
+        })
+        .collect();
+    let order = pathopt::order_stops(&stops, start);
+    let mut slots: Vec<Option<Path2D>> = paths.into_iter().map(Some).collect();
+    let mut out: Vec<(Path2D, u32)> = Vec::with_capacity(n);
+    let mut cursor = start;
+    for k in order {
+        let items: Vec<Path2D> = parts[k].iter().filter_map(|&i| slots[i].take()).collect();
+        let ordered = order_paths(items, CutOrderStrategy::InsideFirst, cursor);
+        if let Some((last, _)) = ordered.last() {
+            let end = if last.closed {
+                last.points.first()
+            } else {
+                last.points.last()
+            };
+            if let Some(end) = end {
+                cursor = *end;
+            }
+        }
+        out.extend(ordered);
+    }
+    out
+}
+
+/// Tells the user (in the job's warnings) what "cut lines that lie on top of each other once" did.
+fn note_shared_lines(warnings: &mut Vec<String>, layer_name: &str, shared: &pathopt::SharedLines) {
+    if shared.skipped {
+        warnings.push(format!(
+            "Cut lines that lie on top of each other once was skipped on '{layer_name}': the layer has more than {} points.",
+            pathopt::MAX_SHARED_POINTS
+        ));
+    } else if shared.removed_mm > 0.05 {
+        warnings.push(format!(
+            "Cut lines that lie on top of each other once left out {:.1} mm of cutting that was already done, on '{layer_name}'.",
+            shared.removed_mm
+        ));
+    }
+}
+
+/// What is needed to burn one filled object: its closed shapes and its scan lines.
+struct FillJob {
+    closed: Vec<Path2D>,
+    rows: Vec<Vec<(Point2, Point2)>>,
+}
+
+impl FillJob {
+    /// Where the head enters this object and where it leaves it (overscan and the outline pass move
+    /// both a little, which does not matter for putting the objects in order).
+    fn stop(&self) -> pathopt::Stop {
+        let first = self.rows.iter().flatten().next().map(|s| s.0);
+        let last = self.rows.iter().flatten().last().map(|s| s.1);
+        let fallback = self
+            .closed
+            .first()
+            .and_then(|p| p.points.first())
+            .copied()
+            .unwrap_or(Point2::ZERO);
+        pathopt::Stop {
+            start: first.unwrap_or(fallback),
+            end: last.unwrap_or(fallback),
+        }
+    }
 }
 
 /// Orders paths for cutting, returning each path with its nesting depth.
@@ -2008,6 +2191,261 @@ mod tests {
             .ramp_mm = 5.0;
         let r = generate(&p);
         assert!(fill_moves(&r).iter().all(|s| s.power_percent == 40.0));
+    }
+
+    // ---- path planning ---------------------------------------------------------------------
+
+    /// A project with one object per entry of `shapes`, all on the (first) layer of this kind.
+    fn project_with_objects(kind: LayerKind, shapes: Vec<Vec<Path2D>>) -> ProjectFile {
+        let mut p = ProjectFile::new("T", MachineProfile::tts55_pro());
+        let layer = p.layers.iter().find(|l| l.kind == kind).unwrap().id;
+        for (i, paths) in shapes.into_iter().enumerate() {
+            let mut o = WorkspaceObject::new_vector(format!("o{i}"), paths, i as i32);
+            o.layer_id = Some(layer);
+            p.objects.push(o);
+        }
+        p
+    }
+
+    fn three_filled_squares() -> ProjectFile {
+        // Drawn far away, near the head, then in the middle. The head starts at the bottom-left corner.
+        let mut p = project_with_objects(
+            LayerKind::Fill,
+            vec![
+                vec![square(250.0, 100.0, 10.0)],
+                vec![square(10.0, 270.0, 10.0)],
+                vec![square(130.0, 100.0, 10.0)],
+            ],
+        );
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Fill)
+            .unwrap()
+            .line_spacing_mm = 1.0;
+        p
+    }
+
+    /// The left edge of each filled square the burn visits, in the order it visits them.
+    fn squares_visited(p: &ProjectFile) -> Vec<u32> {
+        let mut order: Vec<u32> = Vec::new();
+        for s in generate(p)
+            .toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Fill)
+        {
+            let x = s.from.x.min(s.to.x).round() as u32;
+            if order.last() != Some(&x) {
+                order.push(x);
+            }
+        }
+        order
+    }
+
+    #[test]
+    fn filled_objects_are_burned_nearest_first_when_asked_and_in_drawing_order_when_not() {
+        let mut p = three_filled_squares();
+        p.settings.order_fills_by_distance = false;
+        assert_eq!(squares_visited(&p), vec![250, 10, 130]);
+        p.settings.order_fills_by_distance = true;
+        assert_eq!(squares_visited(&p), vec![10, 130, 250]);
+    }
+
+    #[test]
+    fn ordering_the_fills_burns_exactly_the_same_lines_with_much_less_travel() {
+        let mut p = three_filled_squares();
+        let burn = |p: &ProjectFile| {
+            let mut lines: Vec<(i64, i64, i64, i64)> = generate(p)
+                .toolpath
+                .segments
+                .iter()
+                .filter(|s| s.kind == MoveKind::Fill)
+                .map(|s| {
+                    (
+                        (s.from.x * 1000.0).round() as i64,
+                        (s.from.y * 1000.0).round() as i64,
+                        (s.to.x * 1000.0).round() as i64,
+                        (s.to.y * 1000.0).round() as i64,
+                    )
+                })
+                .collect();
+            lines.sort_unstable();
+            lines
+        };
+        p.settings.order_fills_by_distance = false;
+        let (drawn_burn, drawn) = (burn(&p), generate(&p));
+        p.settings.order_fills_by_distance = true;
+        let (near_burn, near) = (burn(&p), generate(&p));
+        assert_eq!(near_burn, drawn_burn);
+        assert!(
+            drawn.stats.travel_mm - near.stats.travel_mm > 400.0,
+            "{} against {}",
+            drawn.stats.travel_mm,
+            near.stats.travel_mm
+        );
+    }
+
+    #[test]
+    fn a_single_filled_object_is_not_affected_by_ordering() {
+        let mut p = project_with(LayerKind::Fill, vec![square(50.0, 50.0, 10.0)]);
+        p.settings.order_fills_by_distance = false;
+        let off = generate(&p).toolpath.segments;
+        p.settings.order_fills_by_distance = true;
+        assert_eq!(generate(&p).toolpath.segments, off);
+    }
+
+    /// Which part and which path a cut move belongs to, for two 40 mm parts with a 10 mm hole each.
+    fn cut_label(s: &ToolpathSegment) -> &'static str {
+        let (x, y) = (s.from.x, s.from.y);
+        if (25.0..=35.0).contains(&x) && (215.0..=225.0).contains(&y) {
+            "hole A"
+        } else if (115.0..=125.0).contains(&x) && (215.0..=225.0).contains(&y) {
+            "hole B"
+        } else if x < 60.0 {
+            "outline A"
+        } else {
+            "outline B"
+        }
+    }
+
+    fn cut_sequence(p: &ProjectFile) -> Vec<&'static str> {
+        let mut seq: Vec<&'static str> = Vec::new();
+        for s in generate(p)
+            .toolpath
+            .segments
+            .iter()
+            .filter(|s| s.kind == MoveKind::Cut)
+        {
+            let label = cut_label(s);
+            if seq.last() != Some(&label) {
+                seq.push(label);
+            }
+        }
+        seq
+    }
+
+    fn two_parts_with_holes() -> ProjectFile {
+        project_with(
+            LayerKind::Cut,
+            vec![
+                square(10.0, 200.0, 40.0),
+                square(25.0, 215.0, 10.0),
+                square(100.0, 200.0, 40.0),
+                square(115.0, 215.0, 10.0),
+            ],
+        )
+    }
+
+    #[test]
+    fn parts_are_cut_one_at_a_time_when_asked_and_every_hole_first_when_not() {
+        let mut p = two_parts_with_holes();
+        // As before: every hole on the sheet, then the outlines.
+        assert_eq!(
+            cut_sequence(&p),
+            vec!["hole A", "hole B", "outline B", "outline A"]
+        );
+        p.settings.cut_part_by_part = true;
+        assert_eq!(
+            cut_sequence(&p),
+            vec!["hole A", "outline A", "hole B", "outline B"]
+        );
+    }
+
+    #[test]
+    fn a_part_is_an_outline_with_everything_inside_it_and_the_deepest_comes_first() {
+        let paths = vec![
+            square(0.0, 0.0, 100.0),
+            square(10.0, 10.0, 60.0),
+            square(20.0, 20.0, 10.0),
+            square(150.0, 0.0, 20.0),
+            square(160.0, 5.0, 10.0),
+            line(200.0, 220.0),
+        ];
+        let ordered = order_part_by_part(paths.clone(), Point2::new(0.0, 300.0));
+        assert_eq!(ordered.len(), paths.len());
+        let depths: Vec<u32> = ordered.iter().map(|(_, d)| *d).collect();
+        assert_eq!(depths, vec![2, 1, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn a_layer_kept_in_drawing_order_ignores_the_part_by_part_choice() {
+        let paths = vec![square(250.0, 250.0, 5.0), square(2.0, 2.0, 5.0)];
+        let out = order_for_job(paths, CutOrderStrategy::AsDrawn, Point2::ZERO, true);
+        assert_eq!(out[0].0.points[0], Point2::new(250.0, 250.0));
+    }
+
+    #[test]
+    fn a_shared_edge_is_cut_once_when_asked() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 20.0), square(30.0, 10.0, 20.0)],
+        );
+        let off = generate(&p);
+        assert!(
+            (off.stats.cut_mm - 160.0).abs() < 1e-6,
+            "{}",
+            off.stats.cut_mm
+        );
+        assert!(off.warnings.is_empty(), "{:?}", off.warnings);
+        p.settings.cut_shared_lines_once = true;
+        let on = generate(&p);
+        assert!(
+            (on.stats.cut_mm - 140.0).abs() < 1e-6,
+            "{}",
+            on.stats.cut_mm
+        );
+        assert!(
+            on.warnings.iter().any(|w| w.contains("left out 20.0 mm")),
+            "{:?}",
+            on.warnings
+        );
+    }
+
+    #[test]
+    fn shared_lines_are_not_removed_when_kerf_compensation_is_on() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 20.0), square(30.0, 10.0, 20.0)],
+        );
+        p.settings.cut_shared_lines_once = true;
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .kerf_mm = 0.2;
+        let r = generate(&p);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("was not applied")),
+            "{:?}",
+            r.warnings
+        );
+        // Both squares are still cut whole (a little bigger or smaller than drawn, with the kerf).
+        assert!(r.stats.cut_mm > 150.0, "{}", r.stats.cut_mm);
+    }
+
+    #[test]
+    fn score_lines_on_top_of_each_other_are_scored_once_too() {
+        let mut p = project_with(LayerKind::Score, vec![line(10.0, 60.0), line(40.0, 90.0)]);
+        assert!((generate(&p).stats.cut_mm - 100.0).abs() < 1e-6);
+        p.settings.cut_shared_lines_once = true;
+        let r = generate(&p);
+        assert!((r.stats.cut_mm - 80.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+    }
+
+    #[test]
+    fn passes_repeat_the_lines_that_are_left_after_shared_ones_are_removed() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 20.0), square(30.0, 10.0, 20.0)],
+        );
+        p.settings.cut_shared_lines_once = true;
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .passes = 2;
+        let r = generate(&p);
+        assert!((r.stats.cut_mm - 280.0).abs() < 1e-6, "{}", r.stats.cut_mm);
     }
 
     #[test]

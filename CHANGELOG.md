@@ -57,6 +57,7 @@
   and off. See docs/user-guide.md.
 - Material test grid (speed x power), auto-arrange, and run order control (engrave, score, then cut,
   or your own order).
+- Path planning (Layers panel): three tick boxes for how the head moves inside a layer. Filled objects can be burned nearest first (on in new projects, off in older ones), each part can be cut as a whole before the next (its holes, then its outline), and lines that lie on top of each other can be cut once, such as the shared edge of two parts that touch. The last two are off to start with. See docs/user-guide.md.
 
 **Machine**
 - Console command box: send `$$`, `$32=1` and other typed commands and see the reply. No laser-on,

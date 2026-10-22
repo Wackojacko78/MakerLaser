@@ -197,6 +197,12 @@ export interface ProjectSettings {
   start_from?: StartFrom;
   /** Which point of the job sits on the head when start_from is not 'absolute'. Absent means 'bottom_left'. */
   job_origin?: JobOrigin;
+  /** Fill layers: burn the filled objects nearest first. On for new projects; absent in older projects, which means off. */
+  order_fills_by_distance?: boolean;
+  /** Cut and Score layers: finish each part (its holes, then its outline) before the next. Absent means off. */
+  cut_part_by_part?: boolean;
+  /** Cut and Score layers: cut lines that lie on top of each other once. Absent means off. */
+  cut_shared_lines_once?: boolean;
 }
 
 export interface ProjectFile {

@@ -19,6 +19,7 @@ Since 0.1.0:
 * **Layers and images:** layer colour, lock and drag to reorder; Threshold and Sharpen on Image layers
   (docs/user-guide.md).
 * **Preview:** faint laser-off travel and a Travel switch (docs/preview.md).
+* **Path planning:** filled objects nearest first, parts cut whole and shared lines cut once, as three choices in the Layers panel (docs/user-guide.md).
 * **Machine:** console command box for `$$` and settings (docs/console.md); connection settings for
   USB serial, WebSocket and Telnet, stored and validated (docs/connection.md).
 * **Tools:** Measure tool (docs/measure.md); "unsaved changes" prompt when closing.

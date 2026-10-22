@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CutPlannerOptions } from '@/components/CutPlannerOptions';
 import { NumberField } from '@/components/NumberField';
 import { errorMessage } from '@/lib/format';
 import { canMoveLayerTo, layerLockState, moveLayerTo, normalizeColor, setLayerLocked } from '@/lib/layerTools';
@@ -447,6 +448,14 @@ export function LayersPanel() {
           : 'Engraving runs first and cutting last. The arrows reorder layers of the same type. Choose "my own" to put any layer first. #1 runs first.'}
       </p>
       {warning && <p className="banner danger">{warning}</p>}
+      <CutPlannerOptions
+        settings={project.settings}
+        onChange={(key, value) =>
+          mutate((p) => {
+            p.settings[key] = value;
+          })
+        }
+      />
       {listed.map((l) => (
         <LayerCard
           key={l.id}
