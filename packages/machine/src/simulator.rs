@@ -22,7 +22,7 @@ impl RuntimeEstimate {
     }
 }
 
-fn tokenize(line: &str) -> Vec<(char, f64)> {
+pub(crate) fn tokenize(line: &str) -> Vec<(char, f64)> {
     let b = line.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;

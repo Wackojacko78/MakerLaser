@@ -16,6 +16,8 @@ import {
   type MachineEntry,
 } from '@/lib/configFormat';
 import { errorMessage } from '@/lib/format';
+import { describeMotionRead, motionFromSettings, parseGrblSettings } from '@/lib/grblSettings';
+import { MOTION_KEYS, clearMotion, motionInput, setMotion } from '@/lib/machineMotion';
 import { CATALOG_PREFIX, MACHINE_CATALOG, catalogNote, findCatalogEntry } from '@/lib/machineCatalog';
 import { loadSavedMachines, storeSavedMachines } from '@/lib/savedMachines';
 import { useNoticeStore } from '@/state/noticeStore';
@@ -50,7 +52,10 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
     mutate((p) => {
       // Loading a preset or a file replaces the whole machine, and one with no connection
       // means USB serial: forget the old connection first so a network setting cannot stick.
-      if (key === 'preset' || key === 'import') delete p.machine.connection;
+      if (key === 'preset' || key === 'import') {
+        delete p.machine.connection;
+        clearMotion(p.machine);
+      }
       fn(p.machine);
     }, `machine-${key}`);
 
@@ -130,6 +135,25 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Asks the connected machine for its settings and fills in the three speed boxes from them.
+  const readMotion = async () => {
+    try {
+      const read = motionFromSettings(parseGrblSettings(await api.send('$$')));
+      if (!read.found) {
+        notify('warning', describeMotionRead(read));
+        return;
+      }
+      patch('motion', (mm) => {
+        for (const key of MOTION_KEYS) {
+          const v = read.values[key];
+          if (v !== undefined) setMotion(mm, key, v);
+        }
+      });
+      notify('info', describeMotionRead(read));
+    } catch (e) {
+      notify('error', `Could not read the machine's settings: ${errorMessage(e)}`);
+    }
+  };
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Machine settings" onMouseDown={(e) => e.stopPropagation()}>
@@ -193,6 +217,16 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
 
           <label>Max feed (mm/min)</label>
           <NumberField value={m.max_feed_rate_mm_min} min={1} onCommit={(v) => patch('feed', (mm) => (mm.max_feed_rate_mm_min = v))} />
+          <label title="How fast the machine moves (GRBL $110 and $111). Used only for the time estimate. 6000 is assumed until you set it.">Rapid speed (mm/min)</label>
+          <NumberField value={motionInput(m, 'rapid_feed_mm_min')} min={0} onCommit={(v) => patch('rapid', (mm) => setMotion(mm, 'rapid_feed_mm_min', v))} />
+          <label title="How fast the head speeds up and slows down (GRBL $120 and $121). Used only for the time estimate. 0 means not known: the estimate then ignores acceleration.">Acceleration (mm/s²)</label>
+          <NumberField value={motionInput(m, 'acceleration_mm_s2')} min={0} onCommit={(v) => patch('accel', (mm) => setMotion(mm, 'acceleration_mm_s2', v))} />
+          <label title="GRBL's junction deviation ($11). Used only for the time estimate. 0.01 is GRBL's usual value.">Junction deviation (mm)</label>
+          <NumberField value={motionInput(m, 'junction_deviation_mm')} min={0} onCommit={(v) => patch('junction', (mm) => setMotion(mm, 'junction_deviation_mm', v))} />
+          <label>Speeds from the machine</label>
+          <div className="preset-row" style={{ flexWrap: 'wrap' }}>
+            <button onClick={() => void readMotion()} title="Ask the connected machine for its settings ($$) and fill in the three boxes above">Read from machine</button>
+          </div>
           <label>Max S value ($30)</label>
           <NumberField value={m.max_spindle_value} min={1} max={100000} onCommit={(v) => patch('s', (mm) => (mm.max_spindle_value = Math.round(v)))} />
           <label>Baud rate</label>
@@ -216,6 +250,10 @@ export function MachineSettingsDialog({ onClose }: { onClose: () => void }) {
         <p className="hint">
           Check the bed size against your own machine: the “outside the bed” safety check uses these numbers. Max S
           must match GRBL's <code>$30</code>.
+        </p>
+        <p className="hint">
+          Rapid speed, acceleration and junction deviation are GRBL's <code>$110</code> and <code>$111</code>, <code>$120</code> and <code>$121</code>, and <code>$11</code>. They only make the time estimate closer. With
+          Acceleration at 0 the estimate ignores acceleration, which makes a job of many short moves look quicker than it is.
         </p>
 
         <h3>Job placement</h3>

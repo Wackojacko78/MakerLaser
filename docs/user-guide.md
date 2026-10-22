@@ -27,6 +27,8 @@ or type its bed size, origin corner, maximum feed and S value by hand and press 
 origin decides which way the job is mirrored. The same window has **Job placement** (step 8) and
 **Connection** ([connection.md](connection.md)).
 
+**Speeds for the time estimate.** The same window has **Rapid speed**, **Acceleration** and **Junction deviation** (GRBL's `$110` and `$111`, `$120` and `$121`, and `$11`). They are used only for the estimated time shown before a job starts. A real machine speeds up and slows down, and slows for every corner, so a job of many short moves (a fast fill, small shapes, text) takes longer than its feed rate alone says. With the three set, the estimate follows how GRBL plans the moves; with **Acceleration** left at 0 it ignores acceleration, as it always did. Connect to the machine and press **Read from machine** to fill them in from `$$`, or type them. The Two Trees TTS-55 Pro preset has the values one such machine reported (30000 mm/min and 2500 mm/s²): check yours. The pre-flight dialog says which kind of estimate it is and how much of the time the laser is off. It is a model, not a measurement: time a real job and compare.
+
 ## 3. Bring in artwork
 
 * **Import** (button, **Ctrl+I**, or drag a file onto the window): SVG, DXF, PNG, JPG, BMP. Anything

@@ -98,6 +98,9 @@ Importing:
 | `homing_supported` | no | `true` or `false`. Default `false`. |
 | `air_assist_supported` | no | `true` or `false`. Default `false`. |
 | `baud_rate` | no | Whole number of at least 300. Default `115200`. |
+| `rapid_feed_mm_min` | no | Number from 1 to 1000000, or `null`. The fastest the machine moves (`$110`, `$111`). Used only for the time estimate; 6000 if left out. |
+| `acceleration_mm_s2` | no | Number from 1 to 1000000, or `null`. How fast it speeds up and slows down (`$120`, `$121`). Used only for the time estimate; if left out the estimate ignores acceleration. |
+| `junction_deviation_mm` | no | Number above 0 and at most 10, or `null`. GRBL's `$11`. Used only for the time estimate; 0.01 if left out. |
 
 Importing a machine file replaces the machine settings of the open project and adds the machine
 to your saved presets. A machine whose name matches a built-in preset is loaded but not saved.

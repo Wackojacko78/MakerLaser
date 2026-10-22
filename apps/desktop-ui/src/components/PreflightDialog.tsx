@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { describeEstimate } from '@/lib/estimateInfo';
 import { formatDuration, formatLength } from '@/lib/format';
 import { originInfo } from '@/lib/transform';
 import { useJobStore } from '@/state/jobStore';
@@ -28,6 +29,7 @@ export function PreflightDialog({ onCancel, onConfirm }: Props) {
   const origin = originInfo(project.machine);
   const allChecked = simulated || checks.every(Boolean);
   const warnings = [...result.safety.warnings, ...result.warnings];
+  const estimate = describeEstimate(result);
   const toggle = (i: number) => setChecks((c) => c.map((v, j) => (j === i ? !v : v)));
 
   return (
@@ -43,7 +45,13 @@ export function PreflightDialog({ onCancel, onConfirm }: Props) {
 
         <table className="summary">
           <tbody>
-            <tr><th>Estimated time</th><td>{formatDuration(result.estimated_seconds)}</td></tr>
+            <tr>
+              <th>Estimated time</th>
+              <td>
+                {formatDuration(estimate.totalSeconds)}
+                {estimate.travelSeconds !== null && ` (${formatDuration(estimate.travelSeconds)} with the laser off)`}
+              </td>
+            </tr>
             <tr><th>Cut / score length</th><td>{formatLength(result.stats.cut_mm)}</td></tr>
             <tr><th>Engrave / fill length</th><td>{formatLength(result.stats.engrave_mm)}</td></tr>
             <tr><th>Travel (laser off)</th><td>{formatLength(result.stats.travel_mm)}</td></tr>
@@ -53,6 +61,7 @@ export function PreflightDialog({ onCancel, onConfirm }: Props) {
           </tbody>
         </table>
 
+        <p className="hint">{estimate.note}</p>
         <p className="origin-note">
           Jobs are absolute. The laser head must be parked at the work origin, the{' '}
           <b>{CORNER[project.machine.origin] ?? 'machine'}</b> corner of the bed (X0 Y0 at {origin.x}, {origin.y} mm on

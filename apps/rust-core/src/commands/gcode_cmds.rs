@@ -41,6 +41,28 @@ pub struct GenerateResponse {
     pub safety: SafetyReport,
     pub warnings: Vec<String>,
     pub estimated_seconds: f64,
+    /// How much of `estimated_seconds` is the laser off (rapid moves, overscan run-ups).
+    pub estimated_travel_seconds: f64,
+    /// True when the estimate uses the machine's acceleration; false when it ignores it because the
+    /// machine profile has none (older projects), which makes a job of many short moves look quicker
+    /// than it is.
+    pub estimate_modelled: bool,
+}
+
+/// What the machine can do, for the time estimate: the machine profile's own speeds, or the defaults
+/// the estimate has always used for any it does not know.
+fn motion_profile(
+    machine: &makerlaser_common::MachineProfile,
+) -> makerlaser_machine::MotionProfile {
+    makerlaser_machine::MotionProfile {
+        rapid_mm_min: machine
+            .rapid_feed_mm_min
+            .unwrap_or(makerlaser_machine::DEFAULT_RAPID_MM_MIN),
+        acceleration_mm_s2: machine.acceleration_mm_s2,
+        junction_deviation_mm: machine
+            .junction_deviation_mm
+            .unwrap_or(makerlaser_machine::DEFAULT_JUNCTION_DEVIATION_MM),
+    }
 }
 
 #[tauri::command(async)]
@@ -52,7 +74,8 @@ pub fn generate_gcode(state: State<'_, AppState>) -> Result<GenerateResponse, St
     };
 
     let lines: Vec<String> = job.gcode.lines().map(String::from).collect();
-    let estimate = makerlaser_machine::estimate_runtime(&lines, 6000.0);
+    let motion = motion_profile(&project.machine);
+    let estimate = makerlaser_machine::estimate_motion(&lines, &motion);
 
     let all = &job.toolpath.toolpath.segments;
     let stride = if all.len() > MAX_PREVIEW_SEGMENTS {
@@ -97,6 +120,8 @@ pub fn generate_gcode(state: State<'_, AppState>) -> Result<GenerateResponse, St
         safety: job.safety,
         warnings: job.warnings,
         estimated_seconds: estimate.total_seconds(),
+        estimated_travel_seconds: estimate.travel_seconds,
+        estimate_modelled: motion.is_modelled(),
     })
 }
 
@@ -114,4 +139,35 @@ pub fn save_gcode(state: State<'_, AppState>, path: String) -> Result<(), String
     let mut text = job.lines.join("\n");
     text.push('\n');
     std::fs::write(&path, text).map_err(|e| format!("Cannot write '{}': {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use makerlaser_common::MachineProfile;
+
+    #[test]
+    fn the_estimate_uses_the_machines_own_speeds_and_the_old_defaults_for_the_rest() {
+        let mut m = MachineProfile::generic_grbl();
+        let none = motion_profile(&m);
+        assert_eq!(none.rapid_mm_min, 6000.0);
+        assert_eq!(none.acceleration_mm_s2, None);
+        assert_eq!(none.junction_deviation_mm, 0.01);
+        assert!(!none.is_modelled());
+        m.rapid_feed_mm_min = Some(30_000.0);
+        m.acceleration_mm_s2 = Some(2_500.0);
+        m.junction_deviation_mm = Some(0.02);
+        let set = motion_profile(&m);
+        assert_eq!(
+            (
+                set.rapid_mm_min,
+                set.acceleration_mm_s2,
+                set.junction_deviation_mm
+            ),
+            (30_000.0, Some(2_500.0), 0.02)
+        );
+        assert!(set.is_modelled());
+        // The TTS-55 Pro preset knows its speeds.
+        assert!(motion_profile(&MachineProfile::tts55_pro()).is_modelled());
+    }
 }

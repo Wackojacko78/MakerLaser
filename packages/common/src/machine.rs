@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::geometry_types::{BoundingBox, Point2};
+/// The largest rapid speed (mm/min) or acceleration (mm/s²) a machine profile may hold.
+pub const MAX_MOTION_VALUE: f64 = 1_000_000.0;
+/// The largest junction deviation (GRBL `$11`) a machine profile may hold, in mm.
+pub const MAX_JUNCTION_DEVIATION_MM: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -136,6 +140,17 @@ pub struct MachineProfile {
     /// How to reach the machine. Absent in older files, which means USB serial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionSettings>,
+    /// The fastest the machine moves, in mm/min (GRBL `$110` and `$111`; the smaller if they differ).
+    /// Only the time estimate uses it. Absent: the estimate assumes 6000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rapid_feed_mm_min: Option<f64>,
+    /// How fast the head speeds up and slows down, in mm/s² (GRBL `$120` and `$121`; the smaller if they
+    /// differ). Only the time estimate uses it. Absent: the estimate ignores acceleration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceleration_mm_s2: Option<f64>,
+    /// GRBL's junction deviation (`$11`), in mm. Only the time estimate uses it. Absent: 0.01.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub junction_deviation_mm: Option<f64>,
 }
 
 impl MachineProfile {
@@ -155,6 +170,10 @@ impl MachineProfile {
             air_assist_supported: true,
             baud_rate: 115_200,
             connection: None,
+            // The speeds one TTS-55 Pro reported ($110 and $111, $120 and $121): check yours with $$.
+            rapid_feed_mm_min: Some(30_000.0),
+            acceleration_mm_s2: Some(2_500.0),
+            junction_deviation_mm: None,
         }
     }
 
@@ -182,6 +201,9 @@ impl MachineProfile {
             air_assist_supported: false,
             baud_rate: 115_200,
             connection: None,
+            rapid_feed_mm_min: None,
+            acceleration_mm_s2: None,
+            junction_deviation_mm: None,
         }
     }
 
@@ -235,6 +257,25 @@ impl MachineProfile {
         }
         if self.max_spindle_value == 0 {
             problems.push("Machine maximum S value ($30) must be greater than zero".to_string());
+        }
+        let motion_ok = |v: f64| v.is_finite() && (1.0..=MAX_MOTION_VALUE).contains(&v);
+        if self.rapid_feed_mm_min.is_some_and(|v| !motion_ok(v)) {
+            problems.push(format!(
+                "Machine rapid speed must be a number from 1 to {MAX_MOTION_VALUE:.0} mm/min"
+            ));
+        }
+        if self.acceleration_mm_s2.is_some_and(|v| !motion_ok(v)) {
+            problems.push(format!(
+                "Machine acceleration must be a number from 1 to {MAX_MOTION_VALUE:.0} mm/s2"
+            ));
+        }
+        if self
+            .junction_deviation_mm
+            .is_some_and(|v| !(v.is_finite() && v > 0.0 && v <= MAX_JUNCTION_DEVIATION_MM))
+        {
+            problems.push(format!(
+                "Machine junction deviation must be above 0 and at most {MAX_JUNCTION_DEVIATION_MM:.0} mm"
+            ));
         }
         if let Some(connection) = &self.connection {
             problems.extend(connection.problems());
@@ -362,6 +403,86 @@ mod tests {
         m.connection = Some(network(ConnectionKind::Telnet, "10.0.0.5"));
         assert!(m.validate().is_empty());
         m.connection = Some(network(ConnectionKind::Serial, "bad host"));
+        assert!(m.validate().is_empty());
+    }
+
+    #[test]
+    fn the_motion_settings_are_in_the_tts55_preset_only_and_older_files_load_without_them() {
+        let tts = MachineProfile::tts55_pro();
+        assert_eq!(tts.rapid_feed_mm_min, Some(30_000.0));
+        assert_eq!(tts.acceleration_mm_s2, Some(2_500.0));
+        assert_eq!(tts.junction_deviation_mm, None);
+        assert_eq!(
+            MachineProfile::tts55_pro_extended().acceleration_mm_s2,
+            Some(2_500.0)
+        );
+        let generic = MachineProfile::generic_grbl();
+        assert!(
+            generic.rapid_feed_mm_min.is_none()
+                && generic.acceleration_mm_s2.is_none()
+                && generic.junction_deviation_mm.is_none()
+        );
+        // Settings that are not there are not saved.
+        let json = serde_json::to_string(&generic).unwrap();
+        assert!(
+            !json.contains("rapid_feed")
+                && !json.contains("acceleration")
+                && !json.contains("junction"),
+            "{json}"
+        );
+        // A machine saved before they existed loads with none of them.
+        let old = r#"{"id":"00000000-0000-0000-0000-000000000000","name":"Old","controller":"grbl1_1","bed_width_mm":300.0,"bed_height_mm":300.0,"origin":"bottom_left","max_feed_rate_mm_min":10000.0,"max_spindle_value":1000,"homing_supported":false,"air_assist_supported":true,"baud_rate":115200}"#;
+        let m: MachineProfile = serde_json::from_str(old).unwrap();
+        assert!(
+            m.rapid_feed_mm_min.is_none()
+                && m.acceleration_mm_s2.is_none()
+                && m.junction_deviation_mm.is_none()
+        );
+        assert!(m.validate().is_empty());
+    }
+
+    #[test]
+    fn the_motion_settings_round_trip_under_the_names_the_frontend_expects() {
+        let mut m = MachineProfile::generic_grbl();
+        m.rapid_feed_mm_min = Some(24_000.0);
+        m.acceleration_mm_s2 = Some(1_800.0);
+        m.junction_deviation_mm = Some(0.02);
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains(r#""rapid_feed_mm_min":24000.0"#), "{json}");
+        assert!(json.contains(r#""acceleration_mm_s2":1800.0"#), "{json}");
+        assert!(json.contains(r#""junction_deviation_mm":0.02"#), "{json}");
+        let back: MachineProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn motion_settings_that_make_no_sense_are_machine_problems() {
+        let mut m = MachineProfile::tts55_pro();
+        assert!(m.validate().is_empty());
+        for bad in [0.0, -5.0, f64::NAN, f64::INFINITY, 2.0e6] {
+            m.rapid_feed_mm_min = Some(bad);
+            assert!(
+                m.validate().iter().any(|p| p.contains("rapid speed")),
+                "{bad}"
+            );
+            m.rapid_feed_mm_min = None;
+            m.acceleration_mm_s2 = Some(bad);
+            assert!(
+                m.validate().iter().any(|p| p.contains("acceleration")),
+                "{bad}"
+            );
+            m.acceleration_mm_s2 = None;
+        }
+        for bad in [0.0, -0.01, f64::NAN, 11.0] {
+            m.junction_deviation_mm = Some(bad);
+            assert!(
+                m.validate()
+                    .iter()
+                    .any(|p| p.contains("junction deviation")),
+                "{bad}"
+            );
+        }
+        m.junction_deviation_mm = Some(0.05);
         assert!(m.validate().is_empty());
     }
 

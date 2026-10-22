@@ -156,6 +156,12 @@ export interface MachineProfile {
   baud_rate: number;
   /** How to reach the machine. Absent in older files, which means USB serial. */
   connection?: ConnectionSettings;
+  /** The fastest the machine moves, in mm/min ($110 and $111). Only the time estimate uses it. Absent: 6000 is assumed. */
+  rapid_feed_mm_min?: number;
+  /** How fast it speeds up and slows down, in mm/s2 ($120 and $121). Only the time estimate uses it. Absent: the estimate ignores acceleration. */
+  acceleration_mm_s2?: number;
+  /** GRBL's junction deviation ($11), in mm. Only the time estimate uses it. Absent: 0.01 is assumed. */
+  junction_deviation_mm?: number;
 }
 
 export interface MaterialPreset {
@@ -246,6 +252,10 @@ export interface GenerateResponse {
   safety: SafetyReport;
   warnings: string[];
   estimated_seconds: number;
+  /** How much of estimated_seconds is the laser off. Absent in a response from an older build. */
+  estimated_travel_seconds?: number;
+  /** True when the estimate uses the machine's acceleration. Absent in a response from an older build. */
+  estimate_modelled?: boolean;
 }
 
 export type MachineState =

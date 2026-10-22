@@ -12,6 +12,7 @@
 
 import type { LayerKind, MachineOrigin, MachineProfile, MaterialPreset } from '@/types/domain';
 import { connectionToEntry, parseConnection } from '@/lib/connectionSettings';
+import { MOTION_KEYS, MOTION_LIMITS, motionOf, type MotionKey } from '@/lib/machineMotion';
 import { MAX_OVERSCAN_MM, MAX_RAMP_MM, presetExtras, usesOutline, usesOverscan, usesRamp } from '@/lib/selectionInfo';
 
 export const MATERIALS_FORMAT = 'makerlaser.materials';
@@ -309,6 +310,14 @@ export function validateMachineEntry(raw: unknown): MachineCheck {
   if (typeof air !== 'boolean') bad('air_assist_supported must be true or false');
   const baud = raw.baud_rate ?? 115200;
   if (!isInt(baud) || baud < 300) bad('baud_rate must be a whole number of at least 300');
+  const motion: Partial<Record<MotionKey, number>> = {};
+  for (const key of MOTION_KEYS) {
+    const v = raw[key] ?? null;
+    if (v === null) continue;
+    const { min, max } = MOTION_LIMITS[key];
+    if (!isNum(v) || v < min || v > max) bad(`${key} must be a number from ${min} to ${max}, or null`);
+    else motion[key] = v;
+  }
 
   const connection = parseConnection(raw.connection);
   problems.push(...connection.problems);
@@ -327,6 +336,7 @@ export function validateMachineEntry(raw: unknown): MachineCheck {
       air_assist_supported: air as boolean,
       baud_rate: baud as number,
       ...(connection.value ? { connection: connection.value } : {}),
+      ...motion,
     },
     problems,
   };
@@ -347,6 +357,7 @@ export function machineToEntry(m: MachineProfile | MachineEntry): MachineEntry {
     air_assist_supported: m.air_assist_supported,
     baud_rate: m.baud_rate,
     ...(connection ? { connection } : {}),
+    ...motionOf(m),
   };
 }
 
