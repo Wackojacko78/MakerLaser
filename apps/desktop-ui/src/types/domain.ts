@@ -64,6 +64,10 @@ export interface Layer {
   fill_outline?: boolean;
   /** Score layers: power ramp length at the ends of each line, in mm. Absent in older files, which means 0. */
   ramp_mm?: number;
+  /** Cut layers: width of the tabs left uncut in every outline, in mm. Absent in older files, which means 0 (no tabs). */
+  tab_width_mm?: number;
+  /** Cut layers: about how far apart the tabs are, in mm of outline. Absent in older files, which means 50. */
+  tab_spacing_mm?: number;
 }
 
 export interface ImageObjectData {

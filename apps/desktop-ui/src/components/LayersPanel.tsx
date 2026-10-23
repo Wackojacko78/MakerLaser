@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CutPlannerOptions } from '@/components/CutPlannerOptions';
 import { NumberField } from '@/components/NumberField';
+import { MAX_TAB_SPACING_MM, MAX_TAB_WIDTH_MM, MIN_TAB_SPACING_MM, clampTabSpacing, clampTabWidth, tabSpacing, tabWidth } from '@/lib/cutTabs';
 import { errorMessage } from '@/lib/format';
 import { canMoveLayerTo, layerLockState, moveLayerTo, normalizeColor, setLayerLocked } from '@/lib/layerTools';
 import {
@@ -246,6 +247,12 @@ function LayerCard({
             <label>Kerf</label>
             <NumberField value={layer.kerf_mm} min={0} max={2} onCommit={(v) => patch('kerf', (l) => (l.kerf_mm = v))} />
             <span className="unit">mm (0 = off)</span>
+            <label title="Leaves a small stretch of the cut line uncut, this wide, in every outline, so the part stays attached to the sheet until you break it free. Holes get none. 0 = off.">Tab width</label>
+            <NumberField value={tabWidth(layer)} min={0} max={MAX_TAB_WIDTH_MM} onCommit={(v) => patch('tabw', (l) => (l.tab_width_mm = clampTabWidth(v)))} />
+            <span className="unit">mm (0 = off)</span>
+            <label title="About how far apart the tabs are, measured along the outline. Every outline gets at least two if they fit, and never more than a quarter of it is left uncut.">Tab spacing</label>
+            <NumberField value={tabSpacing(layer)} min={MIN_TAB_SPACING_MM} max={MAX_TAB_SPACING_MM} onCommit={(v) => patch('tabs', (l) => (l.tab_spacing_mm = clampTabSpacing(v)))} />
+            <span className="unit">mm apart</span>
           </>
         )}
 

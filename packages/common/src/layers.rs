@@ -10,6 +10,11 @@ use crate::operations::{RasterOperation, MAX_SHARPEN};
 pub const MAX_OVERSCAN_MM: f64 = 25.0;
 /// Largest power ramp a Score layer may ask for, in mm.
 pub const MAX_RAMP_MM: f64 = 10.0;
+/// Largest cut tab a Cut layer may ask for, in mm.
+pub const MAX_TAB_WIDTH_MM: f64 = 20.0;
+/// Smallest and largest spacing between cut tabs a layer may ask for, in mm of outline.
+pub const MIN_TAB_SPACING_MM: f64 = 5.0;
+pub const MAX_TAB_SPACING_MM: f64 = 1000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,6 +42,9 @@ impl LayerKind {
 
 fn default_line_spacing() -> f64 {
     0.1
+}
+fn default_tab_spacing() -> f64 {
+    50.0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,6 +89,13 @@ pub struct Layer {
     /// ramped, so a cut always goes all the way through.
     #[serde(default)]
     pub ramp_mm: f64,
+    /// Cut layers: leave a tab of uncut line this wide (mm) in every outline, so the part stays attached
+    /// to the sheet until it is broken free by hand. 0 = off. Holes get none.
+    #[serde(default)]
+    pub tab_width_mm: f64,
+    /// Cut layers: about how far apart the tabs are, in mm of outline. Only used when the width is above 0.
+    #[serde(default = "default_tab_spacing")]
+    pub tab_spacing_mm: f64,
 }
 
 impl Layer {
@@ -110,6 +125,8 @@ impl Layer {
             overscan_mm: 0.0,
             fill_outline: false,
             ramp_mm: 0.0,
+            tab_width_mm: 0.0,
+            tab_spacing_mm: default_tab_spacing(),
         }
     }
 
@@ -167,6 +184,18 @@ impl Layer {
             problems.push(format!(
                 "Layer '{n}': power ramp must be between 0 and {:.0} mm",
                 MAX_RAMP_MM
+            ));
+        }
+        if !(0.0..=MAX_TAB_WIDTH_MM).contains(&self.tab_width_mm) {
+            problems.push(format!(
+                "Layer '{n}': tab width must be between 0 and {:.0} mm",
+                MAX_TAB_WIDTH_MM
+            ));
+        }
+        if !(MIN_TAB_SPACING_MM..=MAX_TAB_SPACING_MM).contains(&self.tab_spacing_mm) {
+            problems.push(format!(
+                "Layer '{n}': tab spacing must be between {:.0} and {:.0} mm",
+                MIN_TAB_SPACING_MM, MAX_TAB_SPACING_MM
             ));
         }
         if self.kind == LayerKind::Image && !(0.0..=MAX_SHARPEN).contains(&self.raster.sharpen) {
@@ -258,6 +287,59 @@ mod tests {
         let mut cut = Layer::new("Cut", LayerKind::Cut, 0);
         cut.raster.sharpen = 500.0;
         assert!(cut.validate(100.0, 10_000.0).is_empty());
+    }
+
+    #[test]
+    fn tabs_are_off_by_default_and_old_files_load_with_them_off() {
+        let l = Layer::new("Cut", LayerKind::Cut, 0);
+        assert_eq!(l.tab_width_mm, 0.0);
+        assert_eq!(l.tab_spacing_mm, 50.0);
+        let json = r##"{"id":"6f9c1c0e-5b0e-4a77-9a67-2f0a1d3f9a11","name":"Cut","kind":"cut",
+            "speed_mm_min":300.0,"power_percent":80.0,"passes":1,"air_assist":true,
+            "enabled":true,"z_order":0,"color":"#FF0000"}"##;
+        let old: Layer = serde_json::from_str(json).unwrap();
+        assert_eq!((old.tab_width_mm, old.tab_spacing_mm), (0.0, 50.0));
+    }
+
+    #[test]
+    fn the_tab_settings_survive_a_round_trip_under_the_names_the_frontend_expects() {
+        let mut l = Layer::new("Cut", LayerKind::Cut, 0);
+        l.tab_width_mm = 2.5;
+        l.tab_spacing_mm = 40.0;
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(json.contains("\"tab_width_mm\":2.5"), "{json}");
+        assert!(json.contains("\"tab_spacing_mm\":40.0"), "{json}");
+        let back: Layer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, l);
+    }
+
+    #[test]
+    fn tab_settings_outside_their_range_are_rejected() {
+        let mut l = Layer::new("Cut", LayerKind::Cut, 0);
+        l.tab_width_mm = 3.0;
+        assert!(l.validate(100.0, 10_000.0).is_empty());
+        for ok in [0.0, MAX_TAB_WIDTH_MM] {
+            l.tab_width_mm = ok;
+            assert!(l.validate(100.0, 10_000.0).is_empty(), "{ok}");
+        }
+        for bad in [-1.0, MAX_TAB_WIDTH_MM + 1.0, f64::NAN, f64::INFINITY] {
+            l.tab_width_mm = bad;
+            assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
+        }
+        l.tab_width_mm = 0.0;
+        for ok in [MIN_TAB_SPACING_MM, 50.0, MAX_TAB_SPACING_MM] {
+            l.tab_spacing_mm = ok;
+            assert!(l.validate(100.0, 10_000.0).is_empty(), "{ok}");
+        }
+        for bad in [
+            0.0,
+            MIN_TAB_SPACING_MM - 1.0,
+            MAX_TAB_SPACING_MM + 1.0,
+            f64::NAN,
+        ] {
+            l.tab_spacing_mm = bad;
+            assert_eq!(l.validate(100.0, 10_000.0).len(), 1, "{bad}");
+        }
     }
 
     #[test]

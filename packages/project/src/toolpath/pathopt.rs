@@ -758,7 +758,7 @@ mod tests {
         let r = remove_shared_lines(&[]);
         assert!(r.paths.is_empty() && !r.skipped && r.removed_mm == 0.0);
         let one = Path2D::new(vec![p(1.0, 1.0)], false);
-        let r = remove_shared_lines(&[one.clone()]);
+        let r = remove_shared_lines(std::slice::from_ref(&one));
         assert_eq!(r.paths, vec![one]);
     }
 }

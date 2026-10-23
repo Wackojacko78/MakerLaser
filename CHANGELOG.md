@@ -66,6 +66,7 @@
   connects so far. See docs/connection.md.
 - Machine and material catalogues; config import and export. See docs/catalog.md.
 - A closer time estimate: the Machine window has Rapid speed, Acceleration and Junction deviation (GRBL `$110` and `$111`, `$120` and `$121`, `$11`), with a Read from machine button. The estimate follows how GRBL speeds up, slows for corners and looks ahead, instead of dividing each move by its feed rate, and the pre-flight dialog says how much of the time the laser is off. A machine with no acceleration set is estimated as before. See docs/user-guide.md.
+- Cut tabs: a Cut layer has Tab width and Tab spacing (both in the Layers panel). Each outline is cut with small tabs left uncut, evenly spaced, kept off sharp corners and at most a quarter of the outline in all, so the part stays in the sheet until it is broken free. Holes get none, tabs are made after Kerf and after shared lines are cut once, and the job report says how many were left. Off to start with. See docs/user-guide.md.
 
 **Interface**
 - Measure tool with snapping. See docs/measure.md.

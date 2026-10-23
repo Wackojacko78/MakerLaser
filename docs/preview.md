@@ -14,7 +14,7 @@ moves stand out. Untick **Preview** in the toolbar to see the plain artwork agai
 | Grey, dashed and faint | Travel: the laser head moving with the beam off |
 | Orange, thick | A move that reaches outside the bed |
 
-Cut and score paths have a number at their start, in the order they run.
+Cut and score paths have a number at their start, in the order they run. With cut tabs on, every stretch between two tabs is its own path, so each has its own number, and each tab shows as a gap in the red line with a faint dashed hop across it.
 
 The **Replay** slider in the machine console draws only part of the toolpath, so you can follow the
 order the laser takes.

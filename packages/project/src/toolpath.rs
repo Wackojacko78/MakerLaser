@@ -13,6 +13,8 @@
 //! * **Path planning** (see `pathopt.rs`) is chosen per project: filled objects can be burned nearest first, a
 //!   part can be cut whole (holes, then its outline) before the next, and a line that lies on top of
 //!   another is cut once.
+//! * **Tabs** (see `tabs.rs`): a Cut layer can leave small tabs of uncut line in each outline, so a part stays in the
+//!   sheet until it is broken free by hand. They are made last, after kerf, and holes get none.
 //! * **Raster** resamples the image through the object's full affine transform, applies the
 //!   adjustments and dithering, and emits scan-line runs (bidirectional if requested).
 
@@ -30,6 +32,7 @@ use uuid::Uuid;
 use crate::error::{ProjectError, Result};
 
 mod pathopt;
+mod tabs;
 
 const MAX_RASTER_PIXELS: u64 = 60_000_000;
 const MAX_SEGMENTS: usize = 4_000_000;
@@ -556,6 +559,19 @@ pub fn generate_toolpath(
                         final_paths = shared.paths;
                     }
                 }
+                if layer.tab_width_mm > 0.0 {
+                    // Leave the tabs in last, so they are where the head really stops (after kerf compensation
+                    // and after shared lines are taken out), and only in outlines: never in a hole.
+                    let depths = nesting_depths(&final_paths);
+                    let tabbed = tabs::add_tabs(
+                        &final_paths,
+                        &depths,
+                        layer.tab_width_mm,
+                        layer.tab_spacing_mm,
+                    );
+                    note_tabs(&mut warnings, &layer.name, &tabbed, layer.tab_width_mm);
+                    final_paths = tabbed.paths;
+                }
                 for _ in 0..passes {
                     for p in &final_paths {
                         b.path(p, MoveKind::Cut, layer);
@@ -757,7 +773,7 @@ fn nesting_depths(paths: &[Path2D]) -> Vec<u32> {
                     j != i
                         && paths[j].closed
                         && paths[j].points.len() >= 3
-                        && boxes[j].map_or(false, |bj| bj.contains_box(&bi))
+                        && boxes[j].is_some_and(|bj| bj.contains_box(&bi))
                         && point_in_polygon(probe, &paths[j])
                 })
                 .count() as u32
@@ -854,7 +870,7 @@ fn order_part_by_part(paths: Vec<Path2D>, start: Point2) -> Vec<(Path2D, u32)> {
                 && depths[j] == 0
                 && paths[j].closed
                 && paths[j].points.len() >= 3
-                && boxes[j].map_or(false, |bj| bj.contains_box(&bi))
+                && boxes[j].is_some_and(|bj| bj.contains_box(&bi))
                 && point_in_polygon(probe, &paths[j])
             {
                 root_of[i] = j;
@@ -865,8 +881,7 @@ fn order_part_by_part(paths: Vec<Path2D>, start: Point2) -> Vec<(Path2D, u32)> {
     let mut part_of_root: HashMap<usize, usize> = HashMap::new();
     let mut parts: Vec<Vec<usize>> = Vec::new();
     let mut roots: Vec<usize> = Vec::new();
-    for i in 0..n {
-        let root = root_of[i];
+    for (i, &root) in root_of.iter().enumerate() {
         let k = match part_of_root.get(&root) {
             Some(&k) => k,
             None => {
@@ -924,6 +939,34 @@ fn note_shared_lines(warnings: &mut Vec<String>, layer_name: &str, shared: &path
         warnings.push(format!(
             "Cut lines that lie on top of each other once left out {:.1} mm of cutting that was already done, on '{layer_name}'.",
             shared.removed_mm
+        ));
+    }
+}
+
+/// Tells the user (in the job's warnings) what cut tabs did on a layer.
+fn note_tabs(warnings: &mut Vec<String>, layer_name: &str, tabbed: &tabs::Tabbed, width_mm: f64) {
+    if tabbed.tabs > 0 {
+        warnings.push(format!(
+            "Tabs on '{layer_name}': {} {} left on {} {}. Break the parts free by hand.",
+            tabbed.tabs,
+            if tabbed.tabs == 1 { "tab" } else { "tabs" },
+            tabbed.outlines,
+            if tabbed.outlines == 1 {
+                "outline"
+            } else {
+                "outlines"
+            }
+        ));
+    }
+    if tabbed.too_small > 0 {
+        let (what, verb) = if tabbed.too_small == 1 {
+            ("outline was", "is")
+        } else {
+            ("outlines were", "are")
+        };
+        warnings.push(format!(
+            "Tabs on '{layer_name}': {} {what} too small for {width_mm} mm tabs and {verb} cut all the way round.",
+            tabbed.too_small
         ));
     }
 }
@@ -2446,6 +2489,125 @@ mod tests {
             .passes = 2;
         let r = generate(&p);
         assert!((r.stats.cut_mm - 280.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+    }
+
+    // ---- cut tabs --------------------------------------------------------------------------
+
+    fn set_tabs(p: &mut ProjectFile, kind: LayerKind, width: f64) {
+        let layer = p.layers.iter_mut().find(|l| l.kind == kind).unwrap();
+        layer.tab_width_mm = width;
+        layer.tab_spacing_mm = 50.0;
+    }
+
+    #[test]
+    fn tabs_are_off_unless_a_cut_layer_asks_for_them() {
+        let p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 40.0)]);
+        let r = generate(&p);
+        assert!((r.stats.cut_mm - 160.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        assert_eq!(rapid_moves(&r), 1);
+        assert!(!r.warnings.iter().any(|w| w.contains("Tabs")));
+    }
+
+    #[test]
+    fn a_cut_layer_with_tabs_leaves_them_in_the_outline() {
+        let mut p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 40.0)]);
+        set_tabs(&mut p, LayerKind::Cut, 2.0);
+        let r = generate(&p);
+        // 160 mm round with three tabs of 2 mm.
+        assert!((r.stats.cut_mm - 154.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        // The head goes to the first run, then hops over two tabs.
+        assert_eq!(rapid_moves(&r), 3);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("3 tabs left on 1 outline")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn a_hole_gets_no_tabs_and_a_score_layer_ignores_the_setting() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 40.0), square(20.0, 20.0, 10.0)],
+        );
+        set_tabs(&mut p, LayerKind::Cut, 2.0);
+        let r = generate(&p);
+        // The outline is 154 mm after its tabs and the 40 mm hole is cut whole.
+        assert!((r.stats.cut_mm - 194.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        let mut s = project_with(LayerKind::Score, vec![square(10.0, 10.0, 40.0)]);
+        set_tabs(&mut s, LayerKind::Score, 2.0);
+        let r = generate(&s);
+        assert!((r.stats.cut_mm - 160.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    }
+
+    #[test]
+    fn tabs_are_made_after_kerf_compensation_and_repeat_with_every_pass() {
+        let mut p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 40.0)]);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .kerf_mm = 0.2;
+        let with_kerf_only = generate(&p).stats.cut_mm;
+        assert!(with_kerf_only > 160.5, "{with_kerf_only}");
+        set_tabs(&mut p, LayerKind::Cut, 2.0);
+        p.layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Cut)
+            .unwrap()
+            .passes = 2;
+        let r = generate(&p);
+        // The compensated outline (about 160.8 mm) has three tabs of 2 mm, and two passes cut it twice.
+        let expected = 2.0 * (with_kerf_only - 3.0 * 2.0);
+        assert!(
+            (r.stats.cut_mm - expected).abs() < 1e-6,
+            "{} against {expected}",
+            r.stats.cut_mm
+        );
+    }
+
+    #[test]
+    fn tabs_go_on_the_outlines_that_are_left_when_shared_lines_are_cut_once() {
+        let mut p = project_with(
+            LayerKind::Cut,
+            vec![square(10.0, 10.0, 20.0), square(30.0, 10.0, 20.0)],
+        );
+        p.settings.cut_shared_lines_once = true;
+        set_tabs(&mut p, LayerKind::Cut, 2.0);
+        let r = generate(&p);
+        // 160 mm less the 20 mm shared edge is 140 mm, and the square that is cut whole has two tabs of 2 mm.
+        assert!((r.stats.cut_mm - 136.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("left out 20.0 mm")),
+            "{:?}",
+            r.warnings
+        );
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("2 tabs left on 1 outline")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn an_outline_too_small_for_its_tabs_is_cut_whole_and_the_job_says_so() {
+        let mut p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 2.0)]);
+        set_tabs(&mut p, LayerKind::Cut, 3.0);
+        let r = generate(&p);
+        assert!((r.stats.cut_mm - 8.0).abs() < 1e-6, "{}", r.stats.cut_mm);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("1 outline was too small for 3 mm tabs")),
+            "{:?}",
+            r.warnings
+        );
+        assert!(!r.warnings.iter().any(|w| w.contains("tabs left on")));
     }
 
     #[test]
