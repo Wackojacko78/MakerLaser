@@ -31,7 +31,8 @@ images/<asset-id>.<png|jpg|jpeg|bmp>   one entry per image asset
   "objects": [ { "id", "name", "layer_id", "visible", "locked", "z_index",
                  "transform": { "a","b","c","d","e","f" },
                  "kind": { "type": "vector", "paths": [ { "closed", "points": [{"x","y"}] } ],
-                           "source": { ... } }          // only for text and shapes made in MakerLaser
+                           "source": { ... },         // only for text and shapes made in MakerLaser
+                           "nodes": [ ... ] }         // only after the outlines have been edited as nodes (see Nodes below)
                        | { "type": "image", "asset_id", "format", "width_px", "height_px", "dpi" } } ],
   "materials": { "presets": [ ... ] },
   "settings": { "units", "grid_spacing_mm", "show_grid", "show_origin",
@@ -67,13 +68,28 @@ existed have no `source`.
 | `overscan_mm` | Fill and Image: laser-off run-up and run-out past each scan line (docs/overscan.md) | 0 |
 | `fill_outline` | Fill: trace the edge of each closed shape after the fill (docs/fill-and-ramp.md) | false |
 | `ramp_mm` | Score: length of the power ramp at each end of a line (docs/fill-and-ramp.md) | 0 |
+| `tab_width_mm` | Cut: width of the tabs left uncut in each outline (docs/user-guide.md) | 0 |
+| `tab_spacing_mm` | Cut: about how far apart the tabs are, in mm of outline | 50 |
+
+### Nodes
+
+A vector object may carry `nodes` next to its `paths`: the editable form of the same outlines (one list of nodes for each path, in the same order, with the same `closed` flag). `paths` is what the planner, the preview and the shape tools use, and when `nodes` is present it is always the flattened form of it, to 0.02 mm. The Rust types are in `packages/common/src/nodes.rs` and the rules that edit and flatten them are in `apps/desktop-ui/src/lib/nodePath.ts`.
+
+```jsonc
+"nodes": [ { "closed": true, "nodes": [
+    { "x": 0,  "y": 10, "out": { "x": 0, "y": -5.5 } },
+    { "x": 10, "y": 0,  "in":  { "x": -5.5, "y": 0 }, "mode": "smooth" },
+    { "x": 10, "y": 10 } ] } ]
+```
+
+A segment is straight unless the first node has an `out` handle or the second has an `in` handle; then it is a cubic Bezier whose control points are the node plus its handle (a missing handle counts as zero). Handles are offsets from their node, in mm. `mode` is `corner` (the usual, left out of the file), `smooth` or `symmetric`. A file without `nodes` is exactly as it was, and an object whose `nodes` no longer match its `paths` (a file changed by something that does not know about them) has them rebuilt as plain corners the first time it is edited as nodes. Nothing in the planner reads them, so they cannot change a job. `schema_version` stays 1. An older MakerLaser should ignore the field and use `paths`; this has not been tried.
 
 ### Settings
 
 `start_from` is `absolute`, `current_position` or `user_origin`, and `job_origin` is one of nine
 anchor points (docs/start-from.md). `custom_run_order` is true when the layers run in your own
 order instead of engraving before cutting. The stored User origin itself is **not** in the file:
-it is a machine position and is forgotten when you disconnect.
+it is a machine position and is forgotten when you disconnect. Three more settings choose how the head moves inside a layer (`order_fills_by_distance`, `cut_part_by_part` and `cut_shared_lines_once`: docs/user-guide.md), and the machine may carry `rapid_feed_mm_min`, `acceleration_mm_s2` and `junction_deviation_mm`, which only the time estimate uses (docs/config-formats.md).
 
 ## Compatibility
 

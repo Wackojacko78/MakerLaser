@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::geometry_types::{BoundingBox, Path2D, Point2, Transform2D};
+use crate::nodes::NodePath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -147,6 +148,11 @@ pub struct VectorData {
     /// imported artwork is saved exactly as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<ObjectSource>,
+    /// The editable form of `paths`: one list of nodes for each path, in the same order. Set once the outlines have
+    /// been edited as nodes, and then `paths` is always their flattened form. Nothing in CAM reads it. Left out of
+    /// the file when there is none, so every older project is saved and loaded exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nodes: Option<Vec<NodePath>>,
 }
 
 impl VectorData {
@@ -185,6 +191,7 @@ impl WorkspaceObject {
             kind: ObjectKind::Vector(VectorData {
                 paths,
                 source: None,
+                nodes: None,
             }),
             transform: Transform2D::IDENTITY,
             layer_id: None,
@@ -368,6 +375,80 @@ mod tests {
             }
             other => panic!("not text: {other:?}"),
         }
+    }
+
+    /// The same text is in apps/desktop-ui/tests/nodePath.test.ts: both sides must read it.
+    const GOLDEN_NODES: &str = r#"{"type":"vector","paths":[{"closed":true,"points":[{"x":0,"y":10},{"x":10,"y":0},{"x":10,"y":10}]}],"nodes":[{"closed":true,"nodes":[{"x":0,"y":10,"out":{"x":0,"y":-5.5}},{"x":10,"y":0,"in":{"x":-5.5,"y":0},"mode":"smooth"},{"x":10,"y":10}]}]}"#;
+
+    #[test]
+    fn vectors_without_nodes_are_saved_and_loaded_as_before() {
+        let obj = WorkspaceObject::new_vector("sq", vec![], 0);
+        let json = serde_json::to_string(&obj).unwrap();
+        assert!(!json.contains("nodes"), "{json}");
+        let kind: ObjectKind = serde_json::from_str(r#"{"type":"vector","paths":[]}"#).unwrap();
+        match kind {
+            ObjectKind::Vector(v) => assert!(v.nodes.is_none()),
+            other => panic!("not a vector: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn golden_nodes_json_is_read_and_written_under_the_names_the_frontend_expects() {
+        use crate::nodes::{Handle, NodeMode};
+        let kind: ObjectKind = serde_json::from_str(GOLDEN_NODES).unwrap();
+        let ObjectKind::Vector(v) = &kind else {
+            panic!("not a vector: {kind:?}")
+        };
+        let paths = v.nodes.as_ref().expect("the nodes were read");
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].closed);
+        let n = &paths[0].nodes;
+        assert_eq!(n.len(), 3);
+        assert_eq!(n[0].out_handle, Some(Handle { x: 0.0, y: -5.5 }));
+        assert_eq!(n[0].in_handle, None);
+        assert_eq!(n[0].mode, NodeMode::Corner);
+        assert_eq!(n[1].in_handle, Some(Handle { x: -5.5, y: 0.0 }));
+        assert_eq!(n[1].mode, NodeMode::Smooth);
+        assert_eq!(
+            (n[2].in_handle, n[2].out_handle, n[2].mode),
+            (None, None, NodeMode::Corner)
+        );
+        let json = serde_json::to_string(&kind).unwrap();
+        assert!(
+            json.contains(
+                r#""nodes":[{"closed":true,"nodes":[{"x":0.0,"y":10.0,"out":{"x":0.0,"y":-5.5}},{"x":10.0,"y":0.0,"in":{"x":-5.5,"y":0.0},"mode":"smooth"},{"x":10.0,"y":10.0}]}]"#
+            ),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<ObjectKind>(&json).unwrap(), kind);
+    }
+
+    #[test]
+    fn nodes_and_a_source_can_be_carried_together() {
+        use crate::nodes::{NodePath, PathNode};
+        let mut obj = WorkspaceObject::new_vector("Square", vec![], 0);
+        if let ObjectKind::Vector(v) = &mut obj.kind {
+            v.nodes = Some(vec![NodePath {
+                closed: true,
+                nodes: vec![
+                    PathNode::corner(0.0, 0.0),
+                    PathNode::corner(5.0, 0.0),
+                    PathNode::corner(5.0, 5.0),
+                ],
+            }]);
+            v.source = Some(ObjectSource::Shape(ShapeSource {
+                shape: ShapeKind::Rectangle,
+                width_mm: 5.0,
+                height_mm: 5.0,
+                corner_radius_mm: 0.0,
+                sides: 4,
+                inner_ratio: 0.5,
+            }));
+        }
+        let json = serde_json::to_string(&obj).unwrap();
+        assert!(json.contains(r#""nodes":["#), "{json}");
+        assert!(json.contains(r#""source":{"type":"shape""#), "{json}");
+        assert_eq!(serde_json::from_str::<WorkspaceObject>(&json).unwrap(), obj);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 11 October 2026. What is built, in detail, is in `CHANGELOG.md` ("Unreleased"); what
+Last updated: 23 October 2026. What is built, in detail, is in `CHANGELOG.md` ("Unreleased"); what
 has been tried on a laser is in `VERIFICATION.md`.
 
 ## Done (in `main`)
@@ -15,11 +15,13 @@ Since 0.1.0:
 * **Import:** SVG `<use>` and `<symbol>`, and DXF `INSERT` blocks and arrays (docs/import.md).
 * **CAM:** Overscan for fill and image layers, a fill outline pass, ramped power on score lines
   (docs/overscan.md, docs/fill-and-ramp.md); material test grid; auto-arrange; run order control.
-* **Presets:** material presets remember overscan, outline and ramp (docs/config-formats.md).
+* **Presets:** material presets remember overscan, outline and ramp, the tab width and spacing (Cut), and the threshold and sharpen (Image) (docs/config-formats.md).
 * **Layers and images:** layer colour, lock and drag to reorder; Threshold and Sharpen on Image layers
   (docs/user-guide.md).
 * **Preview:** faint laser-off travel and a Travel switch (docs/preview.md).
 * **Path planning:** filled objects nearest first, parts cut whole and shared lines cut once, as three choices in the Layers panel (docs/user-guide.md).
+* **Time estimate:** follows GRBL's acceleration, corner slowing and look-ahead, with Rapid speed, Acceleration and Junction deviation in the Machine window (docs/user-guide.md).
+* **Cut tabs:** Tab width and Tab spacing on Cut layers leave small uncut tabs in each outline (docs/user-guide.md).
 * **Machine:** console command box for `$$` and settings (docs/console.md); connection settings for
   USB serial, WebSocket and Telnet, stored and validated (docs/connection.md).
 * **Tools:** Measure tool (docs/measure.md); "unsaved changes" prompt when closing.
@@ -59,7 +61,7 @@ Since 0.1.0:
 * A LightBurn feature comparison, to rank what to build next for a general audience.
 * Per-object and per-layer start and end positions. Lower priority now that the job-level Start
   From exists.
-* Tabs and bridges for cuts; job nesting.
+* Job nesting.
 * Image vectorisation (trace); more dithers; per-object raster settings.
 * Single-line fonts (one stroke per letter) for very small text, fast serial numbers and pens. Fill is
   better for most text, so this waits until someone needs it.
@@ -81,9 +83,8 @@ Decided 11 October 2026. Each step is its own update, checked before the next.
    paths; editing their points is step 6, node editing.
 5. **Fillets and chamfers**, done: Shape tools has Fillet and Chamfer for all corners, outside corners or inside
    corners of the selected shapes (docs/user-guide.md). Picking single corners waits for node editing, step 6.
-6. **Node editing.** Needs paths that can hold curves (they are straight-segment lists today), which
-   touches import, CAM, booleans and offset, so it is planned as its own project.
-7. **Cut tabs and bridges.**
+6. **Node editing**, in stages (decided 23 October 2026). Nodes are kept next to the outlines (`nodes` beside `paths`, docs/project-format.md), so the planner, the preview and the shape tools do not change. Stage 1a, the model and its rules, is in. Next: 1b the on-canvas editor (select, move, delete, add a node, X and Y boxes, and Convert to outlines for text and shapes, which stay text until then), then 2 curves and handles, 3 SVG and DXF keep their curves and traces can be simplified, and 4 join, break and fillet on chosen nodes.
+7. **Cut tabs**, done: Tab width and Tab spacing on Cut layers (docs/user-guide.md).
 8. **Library and templates, then camera.**
 9. **Rotary**, only once there is hardware to check it on.
 

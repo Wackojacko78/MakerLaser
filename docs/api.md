@@ -60,6 +60,8 @@ the table below and reports any that are missing or no longer exist.
   safety: { errors: string[]; warnings: string[] };
   warnings: string[];               // objects that will not run, skipped images, ...
   estimated_seconds: number;
+  estimated_travel_seconds?: number; // how much of that is the laser off (absent from older builds)
+  estimate_modelled?: boolean;       // true when the estimate follows the machine's acceleration
 }
 ```
 

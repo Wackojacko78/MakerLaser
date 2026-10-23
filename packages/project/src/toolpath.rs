@@ -2611,6 +2611,49 @@ mod tests {
     }
 
     #[test]
+    fn nodes_on_an_object_change_nothing_in_the_toolpath() {
+        use makerlaser_common::{Handle, NodeMode, NodePath, ObjectKind, PathNode};
+        for kind in [LayerKind::Cut, LayerKind::Score, LayerKind::Fill] {
+            let plain = project_with(
+                kind,
+                vec![square(10.0, 10.0, 20.0), square(15.0, 15.0, 5.0)],
+            );
+            let mut with = plain.clone();
+            if let ObjectKind::Vector(v) = &mut with.objects[0].kind {
+                // Handles that reach somewhere, on every node: the laser must still follow `paths` only.
+                let nodes: Vec<NodePath> = v
+                    .paths
+                    .iter()
+                    .map(|p| NodePath {
+                        closed: p.closed,
+                        nodes: p
+                            .points
+                            .iter()
+                            .map(|q| PathNode {
+                                x: q.x,
+                                y: q.y,
+                                in_handle: Some(Handle { x: 3.0, y: -2.0 }),
+                                out_handle: Some(Handle { x: -3.0, y: 2.0 }),
+                                mode: NodeMode::Smooth,
+                            })
+                            .collect(),
+                    })
+                    .collect();
+                v.nodes = Some(nodes);
+            }
+            assert!(
+                matches!(&with.objects[0].kind, ObjectKind::Vector(v) if v.nodes.is_some()),
+                "{kind:?}: the nodes were not set"
+            );
+            let a = generate(&plain);
+            let b = generate(&with);
+            assert!(!a.toolpath.segments.is_empty(), "{kind:?}");
+            assert_eq!(a.toolpath.segments, b.toolpath.segments, "{kind:?}");
+            assert_eq!(a.warnings, b.warnings, "{kind:?}");
+        }
+    }
+
+    #[test]
     fn travel_starts_from_the_machine_origin_in_workspace_terms() {
         let p = project_with(LayerKind::Cut, vec![square(10.0, 10.0, 10.0)]);
         let r = generate(&p);

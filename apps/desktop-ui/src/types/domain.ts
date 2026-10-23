@@ -113,11 +113,36 @@ export interface ShapeSource {
 
 export type ObjectSource = TextSource | ShapeSource;
 
+/** How the two handles of a node are tied together when one is dragged. Absent means corner (the handles are free). */
+export type NodeMode = 'corner' | 'smooth' | 'symmetric';
+/** A Bezier handle, as an offset from its node in mm. */
+export interface NodeHandle {
+  x: number;
+  y: number;
+}
+/** One editable point of an outline. A segment is straight unless the node before it has an out handle or this one has an in handle. */
+export interface PathNode {
+  x: number;
+  y: number;
+  /** The handle on the side of the previous node. Absent: none. */
+  in?: NodeHandle;
+  /** The handle on the side of the next node. Absent: none. */
+  out?: NodeHandle;
+  mode?: NodeMode;
+}
+/** The editable form of one outline: nodes, with the same closed flag as the outline in `paths`. */
+export interface NodePath {
+  closed: boolean;
+  nodes: PathNode[];
+}
 export interface VectorObjectData {
   type: 'vector';
+  /** The outlines as straight segments. This is what the laser, the preview and the shape tools use. When `nodes` is present it is always the flattened form of it. */
   paths: Path2D[];
   /** Set for text and shapes made in MakerLaser: what they were made from. Absent for imported artwork and for older files. */
   source?: ObjectSource;
+  /** The editable nodes of `paths` (same outlines, same order). Absent until the outlines are first edited as nodes. */
+  nodes?: NodePath[];
 }
 
 export type ObjectKind = ImageObjectData | VectorObjectData;

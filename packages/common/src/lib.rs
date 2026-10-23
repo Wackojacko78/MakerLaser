@@ -5,6 +5,7 @@ pub mod geometry_types;
 pub mod layers;
 pub mod machine;
 pub mod material;
+pub mod nodes;
 pub mod objects;
 pub mod operations;
 pub mod project;
@@ -13,6 +14,7 @@ pub use geometry_types::{BoundingBox, Path2D, Point2, Transform2D};
 pub use layers::{Layer, LayerKind};
 pub use machine::{ControllerKind, MachineOrigin, MachineProfile};
 pub use material::{MaterialLibrary, MaterialPreset};
+pub use nodes::{Handle, NodeMode, NodePath, PathNode};
 pub use objects::{ImageData, ImageFormat, ObjectKind, VectorData, WorkspaceObject};
 pub use operations::{
     CutOperation, CutOrderStrategy, DitherAlgorithm, FillOperation, FillPattern, LaserOperation,
