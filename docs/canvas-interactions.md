@@ -10,6 +10,7 @@
 | Shift or Ctrl + box | Add to the current selection |
 | Click an object | Select it (Shift or Ctrl toggles) |
 | Double-click a shape or text | Open its editor (docs/shapes-and-text.md) |
+| Double-click other artwork (imported, traced, the result of a shape tool) | Edit its nodes (see Nodes below) |
 | Drag a selected object, or the box around several | Move. Every selected object's final position is committed in one undo step |
 | Drag a handle | Resize (proportional from corners) |
 | Drag the rotate handle | Rotate, snapping within 4° of 45° steps |
@@ -27,6 +28,7 @@
 | **P** | Polygon |
 | **S** | Star |
 | **T** | Text |
+| **N** | Node editing of the selected outline (see Nodes below) |
 
 The same tools are in the Tools strip on the left. Pressing the key of the tool that is already
 picked puts it down again. **Esc** (or **V**) leaves a drawing tool without drawing.
@@ -46,6 +48,24 @@ The editor that opens next to a new shape or text:
 | **Tab** / **Shift+Tab** | Next / previous box (it goes round in a circle) |
 | **Enter** | Done (for text, **Ctrl+Enter**, because Enter starts a new line) |
 | **Esc** | Done |
+
+## Nodes
+
+Select one outline (imported artwork, a trace, the result of a shape tool) and press **N**, press **Edit nodes (N)** in Properties, press **Nodes** in the Tools strip, or double-click it. Its points are drawn as small squares. Text and shapes stay text and shapes until you press **Convert to outlines** in Properties, which is one undo step.
+
+| Input | Action |
+|---|---|
+| Click a node | Pick it |
+| Shift or Ctrl + click a node | Add it to the pick, or take it out |
+| Drag a box on empty canvas | Pick the nodes inside it (Shift or Ctrl adds to the pick) |
+| Drag a node | Move it. All picked nodes move together. One undo step for the whole drag |
+| Arrow keys | Nudge the picked nodes 1 mm (Shift: 10 mm). A burst of keys is one undo step |
+| X and Y boxes (Properties) | Type an exact position for the one picked node |
+| Double-click a line | Add a node there. The shape does not change |
+| Delete or Backspace | Delete the picked nodes. A closed outline left with two nodes becomes an open line, and the last node of an object cannot be deleted |
+| Esc | Clear the pick. Esc again, or **V** or **N**, stops node editing |
+
+While node editing is on, the artwork cannot be moved, resized or picked. Picking another object, a drawing tool or Measure stops it. **Ctrl+Z** and **Ctrl+Y** work as usual. Only straight lines are edited so far: handles and curves come in a later update.
 
 ## Keyboard
 

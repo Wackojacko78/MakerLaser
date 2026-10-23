@@ -44,6 +44,7 @@ origin decides which way the job is mirrored. The same window has **Job placemen
 * **Measure** with **M** ([measure.md](measure.md)). **Arrange…** aligns, spaces and repeats the
   selection. **Test grid…** adds a speed × power grid for trying a new material.
 
+**Edit nodes.** Select one outline (imported artwork, a trace, the result of a shape tool) and press **N**, or **Edit nodes** in **Properties**, or double-click it: its points appear as small squares. Click or drag a box to pick them (Shift or Ctrl adds), drag to move them, use the arrow keys to nudge them (1 mm, Shift 10 mm), type an exact position in the **X** and **Y** boxes, double-click a line to add a node, **Delete** to take picked nodes out, **Esc** or **V** to finish. Every change is one **Ctrl+Z** step. Text and shapes stay text and shapes, with their size and font boxes, until you press **Convert to outlines** in **Properties**; after that they are ordinary outlines. All keys and mouse actions are in [canvas-interactions.md](canvas-interactions.md).
 Move, resize and rotate with the mouse or by typing numbers in **Properties**. **Ctrl+Z** undoes.
 
 **Combine, offset and repeat.** Select the shapes (Shift-click or Ctrl-click adds to the selection), then click **Shape tools…** in the toolbar, or the **Shape tools** tab at the top of the right-hand panel. The tab stays as it is while you change the selection, and keeps its settings while you look at another tab.
@@ -182,6 +183,6 @@ unsaved changes, and closing the window asks before it discards them.
 | "Outside the bed" | Move or resize the artwork, or check the bed size in **Machine…** |
 | The head moves the wrong way | Check the origin corner in **Machine…** with the laser unable to fire ([`../SAFETY.md`](../SAFETY.md)) |
 | Burns look weak or strong | Focus, speed, power and the material differ from the preset: test on scrap |
-| A shape or text will not open for editing | It is locked, imported, or made before editing existed: add it again with the tools |
+| A shape or text will not open for editing | It is locked, or it is not a shape or text (imported artwork, a trace and the result of a shape tool have **nodes** to edit instead: double-click it or press N) |
 | A typed command is refused | The console box does not send laser-on commands, `$RST` or real-time keys ([console.md](console.md)) |
 | Something else | [`../INSTALL.md`](../INSTALL.md), "If something fails" |

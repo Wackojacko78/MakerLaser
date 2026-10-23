@@ -12,6 +12,7 @@ import {
 } from '@/lib/actions';
 import { useJobStore } from '@/state/jobStore';
 import { useMeasureStore } from '@/state/measureStore';
+import { useNodeEditStore } from '@/state/nodeEditStore';
 import { useProjectStore } from '@/state/projectStore';
 import type { JobEventPayload } from '@/types/domain';
 
@@ -72,6 +73,13 @@ export function useShortcuts(): void {
         return;
       }
 
+      // While the nodes of an outline are being edited, Delete, Esc and the arrow keys are theirs (canvas/useNodeEdit.ts).
+      if (
+        useNodeEditStore.getState().editingId !== null &&
+        (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key.startsWith('Arrow'))
+      ) {
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         store.removeSelected();

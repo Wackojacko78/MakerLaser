@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
+import { leaveNodeEdit, toggleNodeEdit } from '@/canvas/nodeActions';
 import { importFromDialog } from '@/lib/actions';
 import type { DrawTool } from '@/lib/inlineEdit';
 import { shortcutHint, toolForKey } from '@/lib/toolShortcuts';
 import { useEditStore } from '@/state/editStore';
+import { useNodeEditStore } from '@/state/nodeEditStore';
 import { useMeasureStore } from '@/state/measureStore';
 import { useProjectStore } from '@/state/projectStore';
 import { useViewStore } from '@/state/viewStore';
@@ -23,6 +25,7 @@ export function ToolsPanel() {
   const setTool = useMeasureStore((s) => s.setTool);
   const drawTool = useEditStore((s) => s.tool);
   const setDrawTool = useEditStore((s) => s.setTool);
+  const nodeMode = useNodeEditStore((s) => s.editingId !== null);
 
   // Measure and the drawing tools exclude each other (pressing M while a drawing tool is picked).
   useEffect(() => {
@@ -59,6 +62,7 @@ export function ToolsPanel() {
         onClick={() => {
           setTool('select');
           setDrawTool(null);
+          leaveNodeEdit();
         }}
       >
         <span className="glyph">↖</span>
@@ -74,6 +78,14 @@ export function ToolsPanel() {
       >
         <span className="glyph">↔</span>
         <small>Measure</small>
+      </button>
+      <button
+        className={nodeMode ? 'tool active' : 'tool'}
+        title="Nodes: show the points of the selected outline and move them (N). Double-click an outline does the same."
+        onClick={() => toggleNodeEdit()}
+      >
+        <span className="glyph">◇</span>
+        <small>Nodes</small>
       </button>
       {DRAW_TOOLS.map((t) => (
         <button

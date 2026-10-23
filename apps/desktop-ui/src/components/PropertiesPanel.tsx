@@ -1,5 +1,6 @@
 import { NumberField } from '@/components/NumberField';
 import { ObjectFields } from '@/components/ObjectFields';
+import { NodesPanel } from '@/components/NodesPanel';
 import { SelectionStats } from '@/components/SelectionStats';
 import { isAdditiveSelect } from '@/lib/selectionKeys';
 import { boundsHeight, boundsWidth, unionBounds, worldBounds } from '@/lib/transform';
@@ -66,6 +67,7 @@ export function PropertiesPanel() {
           )}
           <SelectionStats objects={chosen} units={project.settings.units} />
           {only && editSource && !only.locked && <ObjectFields id={only.id} variant="panel" />}
+          {only && only.kind.type === 'vector' && <NodesPanel object={only} />}
           <div className="field-row wide">
             <button onClick={() => rotate(-90)} title="Rotate 90° anticlockwise">⟲ 90°</button>
             <button onClick={() => rotate(90)} title="Rotate 90° clockwise">⟳ 90°</button>

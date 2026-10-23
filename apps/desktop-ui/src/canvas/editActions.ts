@@ -2,6 +2,7 @@
 // (what counts as editable, which keys, what to say) are in lib/editAccess.ts and are unit-tested.
 
 import { PX_PER_MM } from '@/lib/constants';
+import { enterNodeEdit } from '@/canvas/nodeActions';
 import { EDIT_SLACK_PX, editAccess, editBlockedMessage, opensEditorOnKey, pointInBounds } from '@/lib/editAccess';
 import { worldBounds } from '@/lib/transform';
 import { useEditStore } from '@/state/editStore';
@@ -30,6 +31,11 @@ export function openEditorAt(pointMm: { x: number; y: number }, viewScale: numbe
   if (access === 'editable') {
     // Already open for this object: leave it alone, so a double-click inside its box does not steal the cursor.
     if (useEditStore.getState().editingId !== object.id) useEditStore.getState().open(object.id);
+    return;
+  }
+  // Artwork with no saved settings (imported, traced, combined ...) has nodes to edit instead (canvas/nodeActions.ts).
+  if (access === 'no-settings') {
+    enterNodeEdit(object.id);
     return;
   }
   const message = editBlockedMessage(access);

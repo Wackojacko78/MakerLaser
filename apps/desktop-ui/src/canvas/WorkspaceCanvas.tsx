@@ -6,6 +6,8 @@ import { DrawPreview } from '@/canvas/DrawPreview';
 import { finishDrawing } from '@/canvas/drawActions';
 import { openEditorAt, openEditorForKey } from '@/canvas/editActions';
 import { MeasureOverlay } from '@/canvas/MeasureOverlay';
+import { NodeOverlay } from '@/canvas/NodeOverlay';
+import { useNodeEdit } from '@/canvas/useNodeEdit';
 import { ToolpathOverlay } from '@/canvas/ToolpathOverlay';
 import { CanvasEditor } from '@/components/CanvasEditor';
 import { MeasureReadout } from '@/components/MeasureReadout';
@@ -18,6 +20,7 @@ import { compose, decompose, fitView, imageSizeMm, objectsInBox, originInfo } fr
 import { useEditStore } from '@/state/editStore';
 import { useJobStore } from '@/state/jobStore';
 import { useMeasureStore } from '@/state/measureStore';
+import { useNodeEditStore } from '@/state/nodeEditStore';
 import { useProjectStore } from '@/state/projectStore';
 import { useViewStore } from '@/state/viewStore';
 import type { ImageObjectData, Path2D, Transform2D, WorkspaceObject } from '@/types/domain';
@@ -154,6 +157,9 @@ export function WorkspaceCanvas() {
   const replay = useJobStore((s) => s.replay);
   const measuring = useMeasureStore((s) => s.tool === 'measure');
   const openEdit = useEditStore((s) => s.open);
+  // Node editing: the nodes of one outline are drawn over it and the mouse and keys work on them (canvas/NodeOverlay.tsx, canvas/useNodeEdit.ts).
+  const nodeMode = useNodeEditStore((s) => s.editingId !== null);
+  useNodeEdit();
   const drawTool = useEditStore((s) => s.tool);
   const revision = useProjectStore((s) => s.revision);
 
@@ -205,14 +211,14 @@ export function WorkspaceCanvas() {
     if (!stage || !transformer || !project) return;
     const editable = new Set(project.objects.filter((o) => o.visible && !o.locked).map((o) => o.id));
     // The Measure tool picks points: nothing can be dragged, resized or rotated while it is on.
-    const ids: string[] = measuring ? [] : selected;
+    const ids: string[] = measuring || nodeMode ? [] : selected;
     const nodes = ids
       .filter((id) => editable.has(id))
       .map((id) => stage.findOne((n: Konva.Node) => n.id() === id))
       .filter((n): n is Konva.Node => !!n);
     transformer.nodes(nodes);
     transformer.getLayer()?.batchDraw();
-  }, [selected, project, measuring]);
+  }, [selected, project, measuring, nodeMode]);
 
   // A measurement belongs to the drawing it was made on: any change (a move, undo, a new file) clears it.
   useEffect(() => {
@@ -412,7 +418,7 @@ export function WorkspaceCanvas() {
         // The browser's own double-click fires wherever the two clicks land. Konva's needs both
         // clicks on the very same drawn shape, which text and thin outlines often miss.
         const p = layerRef.current?.getRelativePointerPosition();
-        if (p && !measuring && drawTool === null) {
+        if (p && !measuring && !nodeMode && drawTool === null) {
           openEditorAt({ x: p.x / PX_PER_MM, y: p.y / PX_PER_MM }, useViewStore.getState().scale);
         }
       }}
@@ -523,6 +529,7 @@ export function WorkspaceCanvas() {
             />
 
             <DrawPreview draft={draft} viewScale={view.scale} />
+            {nodeMode && <NodeOverlay viewScale={view.scale} />}
             {measuring && <MeasureOverlay viewScale={view.scale} />}
             {band && (
               <Rect
@@ -545,7 +552,7 @@ export function WorkspaceCanvas() {
       <CanvasEditor container={{ left: canvasPos.left, top: canvasPos.top, width: size.w, height: size.h }} />
       <div className="canvas-hint">
         Wheel: zoom &middot; Middle-drag: pan &middot; Drag empty space: box select &middot; Shift or Ctrl: add to
-        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; R E P S T: draw &middot; Esc: leave a drawing tool
+        selection &middot; Arrows: nudge (Shift = 10 mm) &middot; Double-click text or a shape: edit it &middot; R E P S T: draw &middot; Esc: leave a drawing tool &middot; N: edit the nodes of an outline
       </div>
     </div>
   );

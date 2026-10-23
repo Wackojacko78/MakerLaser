@@ -32,6 +32,7 @@
   the Objects list, and box select.
 - The right-hand panel has tabs: Properties (the selection, objects, layers and material library), Shape tools and Trace. The toolbar buttons Shape tools… and Trace… switch to their tabs, a tab keeps its settings while another is showing, and the tab bar stays in view as the panel scrolls.
 
+- Node editing: select one outline and press N (or Edit nodes in Properties, the Nodes tool, or double-click it) to see its points. Click or drag a box to pick nodes, drag or use the arrow keys to move them, type an exact X and Y, double-click a line to add a node and press Delete to take nodes out. Each is one undo step. Text and shapes stay text and shapes until Convert to outlines. Only straight lines so far; curves and handles are next. The outlines are saved with their nodes (docs/project-format.md). See docs/canvas-interactions.md.
 **Import**
 - SVG `<use>` and `<symbol>`, and DXF `INSERT` (blocks, scaled, rotated, in arrays and nested), are
   placed instead of being skipped. Copies are capped so a damaged file cannot fill the computer.
