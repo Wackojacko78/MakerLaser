@@ -24,6 +24,20 @@ pub struct MaterialPreset {
     /// Score presets: power ramp length in mm. None means the preset does not set it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ramp_mm: Option<f64>,
+    /// Cut presets: tab width in mm (0 = no tabs). None means the preset does not set it, so applying it
+    /// leaves the layer's tabs alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_width_mm: Option<f64>,
+    /// Cut presets: about how far apart the tabs are, in mm. None means the preset does not set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_spacing_mm: Option<f64>,
+    /// Image presets: the grey level (0 to 255) where a pixel turns black or white. None means the preset
+    /// does not set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<u8>,
+    /// Image presets: sharpening (0 to 100). None means the preset does not set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharpen: Option<f64>,
     pub thickness_mm: Option<f64>,
     pub notes: Option<String>,
 }
@@ -47,6 +61,10 @@ impl MaterialPreset {
             overscan_mm: None,
             fill_outline: None,
             ramp_mm: None,
+            tab_width_mm: None,
+            tab_spacing_mm: None,
+            threshold: None,
+            sharpen: None,
             thickness_mm: None,
             notes: Some("Starting point only. Run a test on scrap material first.".to_string()),
         }
@@ -71,13 +89,26 @@ impl MaterialPreset {
                 if let Some(v) = self.overscan_mm {
                     layer.overscan_mm = v;
                 }
+                if let Some(v) = self.threshold {
+                    layer.raster.threshold = v;
+                }
+                if let Some(v) = self.sharpen {
+                    layer.raster.sharpen = v;
+                }
             }
             LayerKind::Score => {
                 if let Some(v) = self.ramp_mm {
                     layer.ramp_mm = v;
                 }
             }
-            LayerKind::Cut => {}
+            LayerKind::Cut => {
+                if let Some(v) = self.tab_width_mm {
+                    layer.tab_width_mm = v;
+                }
+                if let Some(v) = self.tab_spacing_mm {
+                    layer.tab_spacing_mm = v;
+                }
+            }
         }
     }
 }
@@ -208,6 +239,130 @@ mod tests {
         preset.apply_to(&mut layer);
         assert_eq!(layer.overscan_mm, 0.0);
         assert!(!layer.fill_outline);
+    }
+
+    fn cut_preset_with_tabs() -> MaterialPreset {
+        let mut p = MaterialPreset::new("Cut", LayerKind::Cut, 150.0, 100.0, 3);
+        p.tab_width_mm = Some(2.0);
+        p.tab_spacing_mm = Some(40.0);
+        p.threshold = Some(90);
+        p.sharpen = Some(30.0);
+        p
+    }
+
+    #[test]
+    fn a_cut_preset_sets_the_tabs_and_nothing_from_the_image_settings() {
+        let mut layer = Layer::new("C", LayerKind::Cut, 0);
+        cut_preset_with_tabs().apply_to(&mut layer);
+        assert_eq!((layer.tab_width_mm, layer.tab_spacing_mm), (2.0, 40.0));
+        assert_eq!(layer.raster.threshold, 128);
+        assert_eq!(layer.raster.sharpen, 0.0);
+    }
+
+    #[test]
+    fn an_image_preset_sets_threshold_and_sharpen_and_nothing_from_the_tabs() {
+        let mut p = cut_preset_with_tabs();
+        p.for_layer_kind = LayerKind::Image;
+        let mut layer = Layer::new("I", LayerKind::Image, 0);
+        p.apply_to(&mut layer);
+        assert_eq!(layer.raster.threshold, 90);
+        assert_eq!(layer.raster.sharpen, 30.0);
+        assert_eq!((layer.tab_width_mm, layer.tab_spacing_mm), (0.0, 50.0));
+    }
+
+    #[test]
+    fn fill_and_score_presets_never_set_tabs_threshold_or_sharpen() {
+        for kind in [LayerKind::Fill, LayerKind::Score] {
+            let mut p = cut_preset_with_tabs();
+            p.for_layer_kind = kind;
+            let mut layer = Layer::new("L", kind, 0);
+            p.apply_to(&mut layer);
+            assert_eq!(
+                (layer.tab_width_mm, layer.tab_spacing_mm),
+                (0.0, 50.0),
+                "{kind:?}"
+            );
+            assert_eq!(
+                (layer.raster.threshold, layer.raster.sharpen),
+                (128, 0.0),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_preset_that_does_not_set_them_leaves_tabs_threshold_and_sharpen_alone() {
+        let mut layer = Layer::new("C", LayerKind::Cut, 0);
+        layer.tab_width_mm = 3.0;
+        layer.tab_spacing_mm = 70.0;
+        MaterialPreset::new("Old", LayerKind::Cut, 150.0, 100.0, 3).apply_to(&mut layer);
+        assert_eq!((layer.tab_width_mm, layer.tab_spacing_mm), (3.0, 70.0));
+        let mut image = Layer::new("I", LayerKind::Image, 0);
+        image.raster.threshold = 70;
+        image.raster.sharpen = 20.0;
+        MaterialPreset::new("Old", LayerKind::Image, 4000.0, 40.0, 1).apply_to(&mut image);
+        assert_eq!((image.raster.threshold, image.raster.sharpen), (70, 20.0));
+    }
+
+    #[test]
+    fn a_preset_can_switch_tabs_threshold_and_sharpen_off() {
+        let mut p = MaterialPreset::new("Off", LayerKind::Cut, 150.0, 100.0, 3);
+        p.tab_width_mm = Some(0.0);
+        let mut layer = Layer::new("C", LayerKind::Cut, 0);
+        layer.tab_width_mm = 2.0;
+        p.apply_to(&mut layer);
+        assert_eq!(layer.tab_width_mm, 0.0);
+        let mut q = MaterialPreset::new("Plain", LayerKind::Image, 4000.0, 40.0, 1);
+        q.threshold = Some(0);
+        q.sharpen = Some(0.0);
+        let mut image = Layer::new("I", LayerKind::Image, 0);
+        image.raster.threshold = 90;
+        image.raster.sharpen = 30.0;
+        q.apply_to(&mut image);
+        assert_eq!((image.raster.threshold, image.raster.sharpen), (0, 0.0));
+    }
+
+    #[test]
+    fn the_new_fields_round_trip_under_the_names_the_frontend_expects_and_are_left_out_when_not_set(
+    ) {
+        let lib = MaterialLibrary {
+            presets: vec![cut_preset_with_tabs()],
+        };
+        let json = lib.to_json().unwrap();
+        for name in ["tab_width_mm", "tab_spacing_mm", "threshold", "sharpen"] {
+            assert!(json.contains(&format!("\"{name}\"")), "{name}: {json}");
+        }
+        assert_eq!(MaterialLibrary::from_json(&json).unwrap(), lib);
+        let plain = MaterialLibrary::default_starter_set().to_json().unwrap();
+        for name in ["tab_width_mm", "tab_spacing_mm", "threshold", "sharpen"] {
+            assert!(!plain.contains(name), "{name}: {plain}");
+        }
+    }
+
+    #[test]
+    fn old_presets_load_without_the_four_new_fields() {
+        let json = r##"{"id":"6f9c1c0e-5b0e-4a77-9a67-2f0a1d3f9a11","name":"Old",
+            "for_layer_kind":"cut","speed_mm_min":150.0,"power_percent":100.0,"passes":3,
+            "air_assist":true,"thickness_mm":null,"notes":null}"##;
+        let p: MaterialPreset = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            (p.tab_width_mm, p.tab_spacing_mm, p.threshold, p.sharpen),
+            (None, None, None, None)
+        );
+    }
+
+    #[test]
+    fn preset_values_outside_the_layer_limits_fail_the_layer_checks() {
+        let mut far = MaterialPreset::new("Far", LayerKind::Cut, 150.0, 100.0, 1);
+        far.tab_width_mm = Some(50.0);
+        let mut layer = Layer::new("check", LayerKind::Cut, 0);
+        far.apply_to(&mut layer);
+        assert_eq!(layer.validate(100.0, 10_000.0).len(), 1);
+        let mut sharp = MaterialPreset::new("Sharp", LayerKind::Image, 4000.0, 40.0, 1);
+        sharp.sharpen = Some(500.0);
+        let mut image = Layer::new("check", LayerKind::Image, 0);
+        sharp.apply_to(&mut image);
+        assert_eq!(image.validate(100.0, 10_000.0).len(), 1);
     }
 
     #[test]

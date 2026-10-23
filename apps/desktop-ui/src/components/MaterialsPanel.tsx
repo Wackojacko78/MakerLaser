@@ -58,8 +58,8 @@ export function MaterialsPanel() {
           <h3 className="inline">Material library ({project.materials.presets.length})</h3>
         </summary>
         <p className="hint">
-          Presets are starting points. Always test on scrap first. A preset saved from a layer also remembers that layer&apos;s overscan,
-          outline and ramp: hover a preset&apos;s type to see them.
+          Presets are starting points. Always test on scrap first. A preset saved from a layer also remembers what that layer type
+          adds to speed, power and passes (overscan, outline, ramp, tabs, threshold, sharpen): hover a preset&apos;s type to see them.
         </p>
         <ul className="materials">
           {project.materials.presets.map((m) => (

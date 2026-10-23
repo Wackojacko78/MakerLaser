@@ -116,7 +116,7 @@ judge sharpening on a scrap test.
 Select objects and press **Assign** on a layer to move them to it. Each layer has a list of
 **material presets** that fill in speed, power and passes. They are conservative starting points,
 not tuned values: **test on scrap**. The **Material library** panel creates, edits, imports and
-exports presets.
+exports presets. A preset made with **Save these settings as a preset** also remembers what the layer type adds to speed, power and passes: **Overscan** (Fill and Image), **Outline** (Fill), **Ramp** (Score), **Tab width** and **Tab spacing** (Cut), and **Threshold** and **Sharpen** (Image). Applying it sets them too, and the line under the preset list says what the preset sets. The built-in starter presets set none of them, because the right tab width depends on the material: set it on a Cut layer and save a preset.
 
 Engraving normally runs before cutting, so a cut-out piece cannot move before it is engraved. The
 Layers panel lets you choose your own order instead, and then warns if something runs after a cut.

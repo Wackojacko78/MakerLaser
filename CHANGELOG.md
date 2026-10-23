@@ -52,6 +52,7 @@
   (Score). Applying a preset sets them, the Layers panel shows them next to "Preset in use", and they
   are saved in material library files. Older presets and files are unchanged and leave those settings
   alone. See docs/config-formats.md.
+- Material presets also remember the tab width and spacing (Cut layers) and the Threshold and Sharpen (Image layers). Saving a preset from a layer stores them (0 and off included), applying one sets them, and the Layers panel shows them next to "Preset in use". Older presets and files leave those settings alone. See docs/config-formats.md.
 - Image layers: a Threshold (the grey level where a pixel turns black or white) and a Sharpen setting,
   both applied before dithering, in the live preview and in the engraving. Old projects load with 128
   and off. See docs/user-guide.md.

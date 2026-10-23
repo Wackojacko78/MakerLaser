@@ -53,7 +53,7 @@ describe('presetExtras: only the settings the layer type uses', () => {
   it('Score keeps the ramp only', () => {
     expect(presetExtras({ for_layer_kind: 'score', ...all })).toEqual({ ramp_mm: 5 });
   });
-  it('Cut keeps nothing', () => {
+  it('Cut keeps none of the three (it has tabs, which are tested in presetExtras2.test.ts)', () => {
     expect(presetExtras({ for_layer_kind: 'cut', ...all })).toEqual({});
   });
   it('leaves out what the preset does not set', () => {
@@ -65,9 +65,9 @@ describe('presetExtras: only the settings the layer type uses', () => {
 describe('extrasFromLayer: what "Save as preset" stores', () => {
   it('stores zero and off too, so the preset says what it wants', () => {
     expect(extrasFromLayer({ kind: 'fill' })).toEqual({ overscan_mm: 0, fill_outline: false });
-    expect(extrasFromLayer({ kind: 'image' })).toEqual({ overscan_mm: 0 });
+    expect(extrasFromLayer({ kind: 'image' })).toEqual({ overscan_mm: 0, threshold: 128, sharpen: 0 });
     expect(extrasFromLayer({ kind: 'score' })).toEqual({ ramp_mm: 0 });
-    expect(extrasFromLayer({ kind: 'cut' })).toEqual({});
+    expect(extrasFromLayer({ kind: 'cut' })).toEqual({ tab_width_mm: 0, tab_spacing_mm: 50 });
   });
   it('stores the layer values', () => {
     expect(extrasFromLayer({ kind: 'fill', overscan_mm: 2.5, fill_outline: true, ramp_mm: 9 })).toEqual({ overscan_mm: 2.5, fill_outline: true });

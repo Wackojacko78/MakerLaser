@@ -182,6 +182,14 @@ export interface MaterialPreset {
   fill_outline?: boolean;
   /** Score presets: power ramp length in mm. Absent means the preset does not set it. */
   ramp_mm?: number;
+  /** Cut presets: tab width in mm (0 is off). Absent means the preset does not set it. */
+  tab_width_mm?: number;
+  /** Cut presets: about how far apart the tabs are, in mm. Absent means the preset does not set it. */
+  tab_spacing_mm?: number;
+  /** Image presets: the grey level where a pixel turns black or white (0 to 255). Absent means the preset does not set it. */
+  threshold?: number;
+  /** Image presets: sharpening (0 to 100). Absent means the preset does not set it. */
+  sharpen?: number;
   thickness_mm: number | null;
   notes: string | null;
 }

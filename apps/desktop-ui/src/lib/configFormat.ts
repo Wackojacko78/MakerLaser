@@ -13,7 +13,20 @@
 import type { LayerKind, MachineOrigin, MachineProfile, MaterialPreset } from '@/types/domain';
 import { connectionToEntry, parseConnection } from '@/lib/connectionSettings';
 import { MOTION_KEYS, MOTION_LIMITS, motionOf, type MotionKey } from '@/lib/machineMotion';
-import { MAX_OVERSCAN_MM, MAX_RAMP_MM, presetExtras, usesOutline, usesOverscan, usesRamp } from '@/lib/selectionInfo';
+import { MAX_TAB_SPACING_MM, MAX_TAB_WIDTH_MM, MIN_TAB_SPACING_MM } from '@/lib/cutTabs';
+import {
+  MAX_OVERSCAN_MM,
+  MAX_RAMP_MM,
+  MAX_SHARPEN,
+  MAX_THRESHOLD,
+  presetExtras,
+  usesOutline,
+  usesOverscan,
+  usesRamp,
+  usesSharpen,
+  usesTabs,
+  usesThreshold,
+} from '@/lib/selectionInfo';
 
 export const MATERIALS_FORMAT = 'makerlaser.materials';
 export const MACHINE_FORMAT = 'makerlaser.machine';
@@ -124,13 +137,34 @@ export function validateMaterialEntry(raw: unknown, index = 0): MaterialCheck {
   if (ramp !== null && (!isNum(ramp) || ramp < 0 || ramp > MAX_RAMP_MM)) {
     bad(`ramp_mm must be a number from 0 to ${MAX_RAMP_MM}, or null`);
   }
+  const tabWidth = raw.tab_width_mm ?? null;
+  if (tabWidth !== null && (!isNum(tabWidth) || tabWidth < 0 || tabWidth > MAX_TAB_WIDTH_MM)) {
+    bad(`tab_width_mm must be a number from 0 to ${MAX_TAB_WIDTH_MM}, or null`);
+  }
+  const tabSpacing = raw.tab_spacing_mm ?? null;
+  if (tabSpacing !== null && (!isNum(tabSpacing) || tabSpacing < MIN_TAB_SPACING_MM || tabSpacing > MAX_TAB_SPACING_MM)) {
+    bad(`tab_spacing_mm must be a number from ${MIN_TAB_SPACING_MM} to ${MAX_TAB_SPACING_MM}, or null`);
+  }
+  const threshold = raw.threshold ?? null;
+  if (threshold !== null && (!isInt(threshold) || threshold < 0 || threshold > MAX_THRESHOLD)) {
+    bad(`threshold must be a whole number from 0 to ${MAX_THRESHOLD}, or null`);
+  }
+  const sharpen = raw.sharpen ?? null;
+  if (sharpen !== null && (!isNum(sharpen) || sharpen < 0 || sharpen > MAX_SHARPEN)) {
+    bad(`sharpen must be a number from 0 to ${MAX_SHARPEN}, or null`);
+  }
   if (problems.length > 0) return { entry: null, problems };
   // Only the settings this layer type uses are kept: overscan for Fill and Image, the outline
-  // for Fill, the ramp for Score. Anything else in the file is ignored.
-  const extras: Pick<MaterialEntry, 'overscan_mm' | 'fill_outline' | 'ramp_mm'> = {};
+  // for Fill, the ramp for Score, the tabs for Cut, the threshold and sharpen for Image.
+  // Anything else in the file is ignored.
+  const extras: Pick<MaterialEntry, 'overscan_mm' | 'fill_outline' | 'ramp_mm' | 'tab_width_mm' | 'tab_spacing_mm' | 'threshold' | 'sharpen'> = {};
   if (usesOverscan(kind as LayerKind) && overscan !== null) extras.overscan_mm = overscan as number;
   if (usesOutline(kind as LayerKind) && outline !== null) extras.fill_outline = outline as boolean;
   if (usesRamp(kind as LayerKind) && ramp !== null) extras.ramp_mm = ramp as number;
+  if (usesTabs(kind as LayerKind) && tabWidth !== null) extras.tab_width_mm = tabWidth as number;
+  if (usesTabs(kind as LayerKind) && tabSpacing !== null) extras.tab_spacing_mm = tabSpacing as number;
+  if (usesThreshold(kind as LayerKind) && threshold !== null) extras.threshold = threshold as number;
+  if (usesSharpen(kind as LayerKind) && sharpen !== null) extras.sharpen = sharpen as number;
   return {
     entry: {
       name,
@@ -197,7 +231,11 @@ const sameExtras = (a: MaterialEntry, b: MaterialEntry) => {
   return (
     (x.overscan_mm ?? null) === (y.overscan_mm ?? null) &&
     (x.fill_outline ?? null) === (y.fill_outline ?? null) &&
-    (x.ramp_mm ?? null) === (y.ramp_mm ?? null)
+    (x.ramp_mm ?? null) === (y.ramp_mm ?? null) &&
+    (x.tab_width_mm ?? null) === (y.tab_width_mm ?? null) &&
+    (x.tab_spacing_mm ?? null) === (y.tab_spacing_mm ?? null) &&
+    (x.threshold ?? null) === (y.threshold ?? null) &&
+    (x.sharpen ?? null) === (y.sharpen ?? null)
   );
 };
 

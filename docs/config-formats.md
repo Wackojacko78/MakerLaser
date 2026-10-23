@@ -48,14 +48,14 @@ General rules for both formats:
 | `overscan_mm` | no | Number from 0 to 25, or `null`. Used by `fill` and `image` presets; ignored on other kinds. |
 | `fill_outline` | no | `true`, `false` or `null`. Used by `fill` presets only. |
 | `ramp_mm` | no | Number from 0 to 10, or `null`. Used by `score` presets only. |
+| `tab_width_mm` | no | Number from 0 to 20, or `null`. Used by `cut` presets only. 0 means no tabs. |
+| `tab_spacing_mm` | no | Number from 5 to 1000, or `null`. About how far apart the tabs are, in mm. Used by `cut` presets only. |
+| `threshold` | no | Whole number from 0 to 255, or `null`. Used by `image` presets only. |
+| `sharpen` | no | Number from 0 to 100, or `null`. 0 is off. Used by `image` presets only. |
 | `thickness_mm` | no | Number above 0 (at most 1000), or `null`. |
 | `notes` | no | Text up to 1000 characters, or `null`. |
 
-A preset only remembers the settings its layer type uses: overscan for Fill and Image, the outline
-pass for Fill and the power ramp for Score. When you apply a preset that sets them, the layer gets
-those values too. A preset that leaves them out (every preset made before they were added) does not
-touch them, so applying it keeps the layer's own overscan, outline and ramp. Older versions of
-MakerLaser ignore the three fields, so files that have them still open there.
+A preset only remembers the settings its layer type uses: overscan for Fill and Image, the outline pass for Fill, the power ramp for Score, the tab width and spacing for Cut, and the threshold and sharpen for Image. When you apply a preset that sets them, the layer gets those values too. A preset that leaves them out (every preset made before they were added) does not touch them, so applying it keeps the layer's own settings. Older versions of MakerLaser ignore the fields they do not know, so files that have them still open there.
 
 Importing:
 
