@@ -83,7 +83,7 @@ Decided 11 October 2026. Each step is its own update, checked before the next.
    paths; editing their points is step 6, node editing.
 5. **Fillets and chamfers**, done: Shape tools has Fillet and Chamfer for all corners, outside corners or inside
    corners of the selected shapes (docs/user-guide.md). Picking single corners waits for node editing, step 6.
-6. **Node editing**, in stages (decided 23 October 2026). Nodes are kept next to the outlines (`nodes` beside `paths`, docs/project-format.md), so the planner, the preview and the shape tools do not change. Stages 1a (the model and its rules) and 1b (the editor on the canvas: pick, move, nudge, X and Y boxes, add and delete nodes, and Convert to outlines for text and shapes, which stay text until then) are in. Next: 2 curves and handles, 3 SVG and DXF keep their curves and traces can be simplified, and 4 join, break and fillet on chosen nodes.
+6. **Node editing**, in stages (decided 23 October 2026). Nodes are kept next to the outlines (`nodes` beside `paths`, docs/project-format.md), so the planner, the preview and the shape tools do not change. Stages 1a (the model and its rules) and 1b (the editor on the canvas: pick, move, nudge, X and Y boxes, add and delete nodes, and Convert to outlines for text and shapes, which stay text until then) and 2 (handles and curves, with Corner, Smooth and Symmetric nodes, and circles and rounded corners converting to curve nodes) are in. Next: 3 SVG and DXF keep their curves and traces can be simplified, and 4 join, break and fillet on chosen nodes.
 7. **Cut tabs**, done: Tab width and Tab spacing on Cut layers (docs/user-guide.md).
 8. **Library and templates, then camera.**
 9. **Rotary**, only once there is hardware to check it on.

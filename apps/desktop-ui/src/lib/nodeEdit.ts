@@ -7,6 +7,7 @@
 // everything that comes from the pointer is turned into world millimetres first and the object's transform is undone
 // before a node is changed. A Bezier curve keeps its shape under any affine transform, so the position along a segment
 // (t) found in world space is the same t in local space.
+import { moveHandle, type HandleSide } from '@/lib/nodeCurves';
 import {
   deleteNodes,
   insertNode,
@@ -31,6 +32,8 @@ export const SEGMENT_HIT_PX = 6;
 export const DRAG_START_PX = 3;
 /** Above this many nodes only the selected ones are drawn on the canvas (the rest can still be picked). */
 export const MAX_DRAWN_NODES = 5_000;
+/** The handles of at most this many picked nodes are drawn and can be grabbed. */
+export const MAX_HANDLE_NODES = 300;
 
 // ---- the transform ----------------------------------------------------------------------------------
 
@@ -129,7 +132,9 @@ export type NodeGesture =
   /** Dragging nodes: where the press was (world mm), which nodes, and whether it has moved far enough to count. */
   | { kind: 'drag'; start: Point2; refs: NodeRef[]; moved: boolean }
   /** Dragging a box on empty canvas to pick nodes. `base` is what was selected before an additive box. */
-  | { kind: 'band'; start: Point2; current: Point2; additive: boolean; base: NodeRef[] };
+  | { kind: 'band'; start: Point2; current: Point2; additive: boolean; base: NodeRef[] }
+  /** Dragging one handle of a node. */
+  | { kind: 'handle'; start: Point2; ref: NodeRef; side: HandleSide; moved: boolean };
 
 export interface PressResult {
   selection: NodeRef[];
@@ -167,9 +172,80 @@ export function moveGesture(g: NodeGesture, p: Point2, thresholdMm: number): Nod
   return g.moved ? g : { ...g, moved: Math.hypot(p.x - g.start.x, p.y - g.start.y) >= thresholdMm };
 }
 
+// ---- handles ----------------------------------------------------------------------------------------------------
+
+/** One visible handle: which node and side, where its node is and where its tip is (world mm). */
+export interface HandleTip {
+  ref: NodeRef;
+  side: HandleSide;
+  nodeX: number;
+  nodeY: number;
+  x: number;
+  y: number;
+}
+
+/** The handles of the picked nodes that reach somewhere, in world millimetres (the nodes must already be in world millimetres). */
+export function handleTips(world: readonly NodePath[], picked: readonly NodeRef[], limit: number = MAX_HANDLE_NODES): HandleTip[] {
+  const tips: HandleTip[] = [];
+  for (const ref of picked.slice(0, limit)) {
+    const n = world[ref.path]?.nodes[ref.node];
+    if (!n) continue;
+    for (const side of ['in', 'out'] as const) {
+      const h = side === 'in' ? n.in : n.out;
+      if (h && Math.hypot(h.x, h.y) > 1e-9) tips.push({ ref, side, nodeX: n.x, nodeY: n.y, x: n.x + h.x, y: n.y + h.y });
+    }
+  }
+  return tips;
+}
+
+/** The handle tip nearest the point, if one is within `tolMm`. */
+export function handleAt(world: readonly NodePath[], picked: readonly NodeRef[], p: Point2, tolMm: number): (HandleTip & { distance: number }) | null {
+  let best: (HandleTip & { distance: number }) | null = null;
+  for (const tip of handleTips(world, picked)) {
+    const distance = Math.hypot(tip.x - p.x, tip.y - p.y);
+    if (distance <= tolMm && (!best || distance < best.distance)) best = { ...tip, distance };
+  }
+  return best;
+}
+
+/**
+ * A press on the canvas, with the handles of the picked nodes taken into account: a handle that is nearer than any node starts
+ * dragging that handle, and anything else is a press as `pressAt` handles it. Shift and Ctrl never grab a handle, so they can
+ * still add a node that lies under one.
+ */
+export function pressOnCanvas(
+  worldNodes: readonly NodePath[],
+  selection: readonly NodeRef[],
+  p: Point2,
+  tolMm: number,
+  additive: boolean,
+): PressResult {
+  if (!additive) {
+    const handle = handleAt(worldNodes, validRefs(worldNodes, selection), p, tolMm);
+    if (handle) {
+      const node = nodeAt(worldNodes, p.x, p.y, tolMm);
+      const n = node ? worldNodes[node.path]?.nodes[node.node] : undefined;
+      if (!n || handle.distance < Math.hypot(n.x - p.x, n.y - p.y)) {
+        return { selection: [...selection], gesture: { kind: 'handle', start: p, ref: handle.ref, side: handle.side, moved: false } };
+      }
+    }
+  }
+  return pressAt(worldNodes, selection, p, tolMm, additive);
+}
+
+/** The nodes with one handle moved by a step in world millimetres (the handle follows the pointer as it moves). */
+export function moveHandleWorld(local: readonly NodePath[], ref: NodeRef, side: HandleSide, t: Transform2D, dx: number, dy: number): readonly NodePath[] {
+  const node = local[ref.path]?.nodes[ref.node];
+  const step = worldStepToLocal(t, dx, dy);
+  if (!node || !step) return local;
+  const h = (side === 'in' ? node.in : node.out) ?? { x: 0, y: 0 };
+  return moveHandle(local, ref, side, { x: h.x + step.x, y: h.y + step.y });
+}
+
 /** The nodes while a drag is in progress, or null when it is not a drag that has moved. */
 export function dragDraft(g: NodeGesture | null, local: readonly NodePath[], t: Transform2D, p: Point2): readonly NodePath[] | null {
-  if (!g || g.kind !== 'drag' || !g.moved) return null;
+  if (!g || g.kind === 'band' || !g.moved) return null;
+  if (g.kind === 'handle') return moveHandleWorld(local, g.ref, g.side, t, p.x - g.start.x, p.y - g.start.y);
   return moveSelectedWorld(local, g.refs, t, p.x - g.start.x, p.y - g.start.y);
 }
 
@@ -177,6 +253,8 @@ export interface ReleaseResult {
   selection: NodeRef[];
   /** Move the dragged nodes by this much (world mm) as one undo step. Null when nothing is to be moved. */
   move: { dx: number; dy: number; refs: NodeRef[] } | null;
+  /** Move one handle by this much (world mm) as one undo step. Null when no handle was dragged. */
+  handle: { ref: NodeRef; side: HandleSide; dx: number; dy: number } | null;
 }
 
 /** The pointer is let go at `p`: a drag that moved is committed; a box picks the nodes inside it. */
@@ -187,12 +265,17 @@ export function releaseAt(
   p: Point2,
   thresholdMm: number,
 ): ReleaseResult {
-  if (!g) return { selection: [...selection], move: null };
+  if (!g) return { selection: [...selection], move: null, handle: null };
+  if (g.kind === 'handle') {
+    return { selection: [...selection], move: null, handle: g.moved ? { ref: g.ref, side: g.side, dx: p.x - g.start.x, dy: p.y - g.start.y } : null };
+  }
   if (g.kind === 'drag') {
-    return g.moved ? { selection: [...selection], move: { dx: p.x - g.start.x, dy: p.y - g.start.y, refs: g.refs } } : { selection: [...selection], move: null };
+    return g.moved
+      ? { selection: [...selection], move: { dx: p.x - g.start.x, dy: p.y - g.start.y, refs: g.refs }, handle: null }
+      : { selection: [...selection], move: null, handle: null };
   }
   const wide = Math.abs(p.x - g.start.x) >= thresholdMm || Math.abs(p.y - g.start.y) >= thresholdMm;
-  if (!wide) return { selection: [...selection], move: null };
+  if (!wide) return { selection: [...selection], move: null, handle: null };
   const box = {
     minX: Math.min(g.start.x, p.x),
     maxX: Math.max(g.start.x, p.x),
@@ -200,7 +283,7 @@ export function releaseAt(
     maxY: Math.max(g.start.y, p.y),
   };
   const inside = nodesInBox(worldNodes, box);
-  return { selection: g.additive ? unionRefs(g.base, inside) : inside, move: null };
+  return { selection: g.additive ? unionRefs(g.base, inside) : inside, move: null, handle: null };
 }
 
 /** The box a band gesture is drawing, or null for anything else. */

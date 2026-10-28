@@ -1,13 +1,14 @@
 // What node editing does to the project: start and stop it, and each edit as one undo step. The rules are in
 // lib/nodeEdit.ts and lib/nodePath.ts and are unit-tested; this file only connects them to the stores.
-import { editableNodes, insertAtWorldPoint, moveSelectedWorld, nodeWorldPosition, planDelete, setNodeWorldPosition, validRefs } from '@/lib/nodeEdit';
+import { makeCurves, makeStraight, segmentsOfPick, setNodeMode, type HandleSide } from '@/lib/nodeCurves';
+import { editableNodes, insertAtWorldPoint, moveHandleWorld, moveSelectedWorld, nodeWorldPosition, planDelete, setNodeWorldPosition, validRefs } from '@/lib/nodeEdit';
 import { convertToOutlines, kindWithNodes, nodeAccess, type NodeRef } from '@/lib/nodePath';
 import { useEditStore } from '@/state/editStore';
 import { useMeasureStore } from '@/state/measureStore';
 import { useNodeEditStore } from '@/state/nodeEditStore';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
-import type { NodePath, Point2, WorkspaceObject } from '@/types/domain';
+import type { NodeMode, NodePath, Point2, WorkspaceObject } from '@/types/domain';
 
 const say = (kind: 'info' | 'warning' | 'error', text: string): void => useNoticeStore.getState().show(kind, text);
 
@@ -113,6 +114,67 @@ export function deletePickedNodes(): void {
   commitNodes(here.object.id, plan.nodes);
   useNodeEditStore.getState().setSelection([]);
   say('info', plan.message);
+}
+
+/** Moves one handle by the amount a drag went (world millimetres): one undo step for the whole drag. */
+export function moveHandleByDrag(ref: NodeRef, side: HandleSide, dx: number, dy: number): void {
+  const here = currentNodes();
+  if (!here) return;
+  commitNodes(here.object.id, moveHandleWorld(here.nodes, ref, side, here.object.transform, dx, dy));
+}
+
+/** Corner, Smooth or Symmetric for the picked nodes. Smooth and Symmetric make handles where there are none. */
+export function setPickedMode(mode: NodeMode): void {
+  const here = currentNodes();
+  if (!here) return;
+  const picked = validRefs(here.nodes, useNodeEditStore.getState().selection);
+  if (picked.length === 0) {
+    say('info', 'Pick a node first.');
+    return;
+  }
+  const next = setNodeMode(here.nodes, picked, mode);
+  if (next === here.nodes) {
+    say('info', `${picked.length === 1 ? 'That node is' : 'Those nodes are'} already ${mode}.`);
+    return;
+  }
+  commitNodes(here.object.id, next);
+}
+
+const NOTHING_TO_BEND = 'Pick two neighbouring nodes, or one node, to bend the line or lines between them.';
+
+/** Curve: turns the straight lines between the picked nodes (or either side of one picked node) into curves you can shape with their handles. */
+export function curvePicked(): void {
+  const here = currentNodes();
+  if (!here) return;
+  const picked = validRefs(here.nodes, useNodeEditStore.getState().selection);
+  const { segments, lines } = segmentsOfPick(here.nodes, picked);
+  if (segments.length === 0) {
+    say('info', NOTHING_TO_BEND);
+    return;
+  }
+  if (lines === 0) {
+    say('info', 'Those are curves already. Drag their handles to shape them.');
+    return;
+  }
+  commitNodes(here.object.id, makeCurves(here.nodes, segments));
+  say('info', `Made ${lines} ${lines === 1 ? 'line a curve' : 'lines curves'}. Drag the handles to shape ${lines === 1 ? 'it' : 'them'}.`);
+}
+
+/** Straight: turns the curves between the picked nodes back into straight lines. */
+export function straightenPicked(): void {
+  const here = currentNodes();
+  if (!here) return;
+  const picked = validRefs(here.nodes, useNodeEditStore.getState().selection);
+  const { segments, curves } = segmentsOfPick(here.nodes, picked);
+  if (segments.length === 0) {
+    say('info', NOTHING_TO_BEND);
+    return;
+  }
+  if (curves === 0) {
+    say('info', 'Those are straight lines already.');
+    return;
+  }
+  commitNodes(here.object.id, makeStraight(here.nodes, segments));
 }
 
 /** Esc: clears the pick, and stops node editing when nothing was picked. */

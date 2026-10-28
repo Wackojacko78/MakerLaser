@@ -10,6 +10,7 @@
 // Every function here returns new values and never changes what it is given: the undo history shares each object's `kind`
 // between snapshots (see cloneProject in state/projectStore.ts), so a kind is replaced, never edited in place.
 // Coordinates are the object's own (local) millimetres, the same as `paths`.
+import { shapeNodes } from '@/lib/shapeNodes';
 import type { NodeHandle, NodeMode, NodePath, ObjectKind, Path2D, PathNode, Point2, VectorObjectData } from '@/types/domain';
 
 /** How far a curve may stray from the true curve when it is flattened, in mm. The same tolerance imports use. */
@@ -244,8 +245,17 @@ export function kindWithNodes(kind: VectorObjectData, nodes: readonly NodePath[]
   return { type: 'vector', paths: flattenNodes(nodes), nodes: nodes.map((p) => ({ closed: p.closed, nodes: p.nodes })) };
 }
 
-/** Text or a shape as an ordinary outline with nodes: the recipe is dropped and the outlines stay exactly as they are. Anything else comes back with nodes added. */
+/**
+ * Text or a shape as an ordinary outline with nodes: the recipe is dropped. An ellipse or a rectangle with rounded corners
+ * becomes the few curve nodes a person would draw (lib/shapeNodes.ts), and its outline is those curves flattened, which is
+ * within a few hundredths of a millimetre of what it was. Everything else keeps its outlines exactly and gets one corner node
+ * for every point. An object with no recipe comes back with nodes added.
+ */
 export function convertToOutlines(kind: VectorObjectData): VectorObjectData {
+  if (kind.source?.type === 'shape') {
+    const curved = shapeNodes(kind.source, kind.paths);
+    if (curved) return { type: 'vector', paths: flattenNodes([curved]), nodes: [curved] };
+  }
   const access = nodeAccess({ type: 'vector', paths: kind.paths, ...(kind.nodes ? { nodes: kind.nodes } : {}) });
   const nodes = access.ok ? access.nodes : nodesFromPaths(kind.paths);
   return { type: 'vector', paths: kind.paths, nodes };

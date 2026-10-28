@@ -51,7 +51,7 @@ The editor that opens next to a new shape or text:
 
 ## Nodes
 
-Select one outline (imported artwork, a trace, the result of a shape tool) and press **N**, press **Edit nodes (N)** in Properties, press **Nodes** in the Tools strip, or double-click it. Its points are drawn as small squares. Text and shapes stay text and shapes until you press **Convert to outlines** in Properties, which is one undo step.
+Select one outline (imported artwork, a trace, the result of a shape tool) and press **N**, press **Edit nodes (N)** in Properties, press **Nodes** in the Tools strip, or double-click it. Its points are drawn as small squares. Text and shapes stay text and shapes until you press **Convert to outlines** in Properties, which is one undo step. A circle or ellipse becomes 4 curve nodes (8 when it is large) and a rectangle with rounded corners becomes 8, with the corners as curves; a polygon, a star and text become one corner node for each point.
 
 | Input | Action |
 |---|---|
@@ -62,10 +62,13 @@ Select one outline (imported artwork, a trace, the result of a shape tool) and p
 | Arrow keys | Nudge the picked nodes 1 mm (Shift: 10 mm). A burst of keys is one undo step |
 | X and Y boxes (Properties) | Type an exact position for the one picked node |
 | Double-click a line | Add a node there. The shape does not change |
+| Drag the end of a handle (a picked node shows them) | Bend the curve. A smooth node swings its other handle round to match, a symmetric one mirrors it, a corner leaves it alone |
+| **Corner**, **Smooth**, **Symmetric** (Properties) | The type of the picked nodes. Smooth and Symmetric make handles where there are none |
+| **Curve**, **Straight** (Properties) | Turn the line between two picked neighbouring nodes (or the lines either side of one picked node) into a curve, or back into a straight line. A new curve has its handles on the line, so it does not change shape until you pull a handle |
 | Delete or Backspace | Delete the picked nodes. A closed outline left with two nodes becomes an open line, and the last node of an object cannot be deleted |
 | Esc | Clear the pick. Esc again, or **V** or **N**, stops node editing |
 
-While node editing is on, the artwork cannot be moved, resized or picked. Picking another object, a drawing tool or Measure stops it. **Ctrl+Z** and **Ctrl+Y** work as usual. Only straight lines are edited so far: handles and curves come in a later update.
+While node editing is on, the artwork cannot be moved, resized or picked. Picking another object, a drawing tool or Measure stops it. **Ctrl+Z** and **Ctrl+Y** work as usual. A picked node shows its handles, which bend the lines next to it into curves. The outline the laser follows is always the curves flattened to 0.02 mm, so a curve is cut as a smooth line. Combine, Offset, Fillet and Trace still give straight-sided results without nodes.
 
 ## Keyboard
 

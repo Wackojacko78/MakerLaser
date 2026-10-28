@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Group, Line, Rect, Shape } from 'react-konva';
-import { addNodeAt, moveNodesByDrag } from '@/canvas/nodeActions';
+import { addNodeAt, moveHandleByDrag, moveNodesByDrag } from '@/canvas/nodeActions';
 import { PX_PER_MM } from '@/lib/constants';
 import {
   DRAG_START_PX,
@@ -11,10 +11,11 @@ import {
   bandBox,
   dragDraft,
   editableNodes,
+  handleTips,
   isSelected,
   moveGesture,
   pointerToWorldMm,
-  pressAt,
+  pressOnCanvas,
   pxToMm,
   releaseAt,
   toWorldNodes,
@@ -52,6 +53,31 @@ function drawSquares(pen: Pen, shape: unknown, points: readonly number[], half: 
     pen.lineTo(x + half, y - half);
     pen.lineTo(x + half, y + half);
     pen.lineTo(x - half, y + half);
+    pen.closePath();
+  }
+  pen.fillStrokeShape(shape);
+}
+
+/** A few short lines, from (x0, y0) to (x1, y1) for every four numbers in `points`: the handles. */
+function drawLines(pen: Pen, shape: unknown, points: readonly number[]): void {
+  pen.beginPath();
+  for (let i = 0; i + 3 < points.length; i += 4) {
+    pen.moveTo(points[i] as number, points[i + 1] as number);
+    pen.lineTo(points[i + 2] as number, points[i + 3] as number);
+  }
+  pen.fillStrokeShape(shape);
+}
+
+/** One small diamond for every pair in `points`: the tips of the handles. */
+function drawDiamonds(pen: Pen, shape: unknown, points: readonly number[], half: number): void {
+  pen.beginPath();
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const x = points[i] as number;
+    const y = points[i + 1] as number;
+    pen.moveTo(x, y - half);
+    pen.lineTo(x + half, y);
+    pen.lineTo(x, y + half);
+    pen.lineTo(x - half, y);
     pen.closePath();
   }
   pen.fillStrokeShape(shape);
@@ -103,6 +129,7 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
       const result = releaseAt(g, here.world, useNodeEditStore.getState().selection, p, pxToMm(DRAG_START_PX, scale, PX_PER_MM));
       useNodeEditStore.getState().setSelection(result.selection);
       if (result.move) moveNodesByDrag(result.move.refs, result.move.dx, result.move.dy);
+      if (result.handle) moveHandleByDrag(result.handle.ref, result.handle.side, result.handle.dx, result.handle.dy);
     };
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
@@ -122,6 +149,18 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
     );
     return { plain, chosen };
   }, [shownWorld, picked, total]);
+
+  // The handles of the picked nodes: a line from each node to the tip of each of its handles, and a diamond on the tip.
+  const handles = useMemo(() => {
+    const lines: number[] = [];
+    const tips: number[] = [];
+    if (!shownWorld) return { lines, tips };
+    for (const t of handleTips(shownWorld, picked)) {
+      lines.push(t.nodeX * PX_PER_MM, t.nodeY * PX_PER_MM, t.x * PX_PER_MM, t.y * PX_PER_MM);
+      tips.push(t.x * PX_PER_MM, t.y * PX_PER_MM);
+    }
+    return { lines, tips };
+  }, [shownWorld, picked]);
 
   const draftLines = useMemo(() => {
     if (!draft || !transform) return [];
@@ -155,7 +194,7 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
           const p = worldAt(e);
           if (!p) return;
           const scale = useViewStore.getState().scale;
-          const r = pressAt(world, validRefs(nodes, useNodeEditStore.getState().selection), p, pxToMm(NODE_HIT_PX, scale, PX_PER_MM), isAdditiveSelect(e.evt));
+          const r = pressOnCanvas(world, validRefs(nodes, useNodeEditStore.getState().selection), p, pxToMm(NODE_HIT_PX, scale, PX_PER_MM), isAdditiveSelect(e.evt));
           useNodeEditStore.getState().setSelection(r.selection);
           gesture.current = r.gesture;
           lastPoint.current = p;
@@ -183,6 +222,8 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
       {draftLines.map((l, i) => (
         <Line key={i} listening={false} points={l.points} closed={l.closed} stroke="#58d7ee" strokeWidth={1.4} strokeScaleEnabled={false} lineJoin="round" />
       ))}
+      <Shape listening={false} stroke="#ffb020" strokeWidth={1} strokeScaleEnabled={false} sceneFunc={(ctx, shape) => drawLines(ctx, shape, handles.lines)} />
+      <Shape listening={false} stroke="#3b2a00" strokeWidth={1} strokeScaleEnabled={false} fill="#ffd27a" sceneFunc={(ctx, shape) => drawDiamonds(ctx, shape, handles.tips, half * 1.1)} />
       <Shape listening={false} stroke="#58d7ee" strokeWidth={1} strokeScaleEnabled={false} fill="#0b3a45" sceneFunc={(ctx, shape) => drawSquares(ctx, shape, markers.plain, half)} />
       <Shape listening={false} stroke="#3b2a00" strokeWidth={1} strokeScaleEnabled={false} fill="#ffb020" sceneFunc={(ctx, shape) => drawSquares(ctx, shape, markers.chosen, half)} />
       {band && (
