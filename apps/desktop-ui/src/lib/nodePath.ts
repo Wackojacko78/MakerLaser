@@ -230,7 +230,7 @@ export function nodeAccessMessage(reason: NodeAccessProblem): string {
     case 'has-recipe':
       return 'This is still text or a shape, so it keeps its size and font boxes. Press Convert to outlines to edit its nodes.';
     case 'too-many':
-      return `It has more than ${MAX_NODES_PER_OBJECT.toLocaleString('en-NZ')} points, too many to edit as nodes. Simplify it first (Trace has a Simplify setting).`;
+      return `It has more than ${MAX_NODES_PER_OBJECT.toLocaleString('en-NZ')} points, too many to edit as nodes. Press Fit curves in Properties to reduce it first.`;
     case 'nothing':
       return 'There are no outlines to edit.';
   }

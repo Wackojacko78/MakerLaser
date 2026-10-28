@@ -59,12 +59,14 @@ Select one outline (imported artwork, a trace, the result of a shape tool) and p
 | Shift or Ctrl + click a node | Add it to the pick, or take it out |
 | Drag a box on empty canvas | Pick the nodes inside it (Shift or Ctrl adds to the pick) |
 | Drag a node | Move it. All picked nodes move together. One undo step for the whole drag |
+| Drag a node near another node or a corner | It jumps onto it, so outlines meet exactly. The other nodes and corners it can land on are those of this outline and of any other visible object (the ends of open lines count too). A green square shows where it will land. Several picked nodes move together, and the one nearest a target lands on it. Hold **Alt** while dragging to move freely. The **Snap to nodes and corners** box in Properties turns it off and on, and is remembered |
 | Arrow keys | Nudge the picked nodes 1 mm (Shift: 10 mm). A burst of keys is one undo step |
 | X and Y boxes (Properties) | Type an exact position for the one picked node |
 | Double-click a line | Add a node there. The shape does not change |
 | Drag the end of a handle (a picked node shows them) | Bend the curve. A smooth node swings its other handle round to match, a symmetric one mirrors it, a corner leaves it alone |
 | **Corner**, **Smooth**, **Symmetric** (Properties) | The type of the picked nodes. Smooth and Symmetric make handles where there are none |
 | **Curve**, **Straight** (Properties) | Turn the line between two picked neighbouring nodes (or the lines either side of one picked node) into a curve, or back into a straight line. A new curve has its handles on the line, so it does not change shape until you pull a handle |
+| **Fit curves** (Properties) | Replaces the many points of an outline (an import, a trace, text you have converted) with a few curve nodes that follow it to within the distance in the **Within** box. Corners stay corners and straight sides stay straight. Works with node editing on or off, and is one undo step. A traced picture needs a distance bigger than its pixels |
 | Delete or Backspace | Delete the picked nodes. A closed outline left with two nodes becomes an open line, and the last node of an object cannot be deleted |
 | Esc | Clear the pick. Esc again, or **V** or **N**, stops node editing |
 

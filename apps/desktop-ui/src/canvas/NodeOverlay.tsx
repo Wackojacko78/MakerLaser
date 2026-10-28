@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Group, Line, Rect, Shape } from 'react-konva';
-import { addNodeAt, moveHandleByDrag, moveNodesByDrag } from '@/canvas/nodeActions';
+import { addNodeAt, moveHandleByDrag, moveNodesByDrag, snapContextFor } from '@/canvas/nodeActions';
 import { PX_PER_MM } from '@/lib/constants';
 import {
   DRAG_START_PX,
@@ -23,6 +23,7 @@ import {
   type NodeGesture,
 } from '@/lib/nodeEdit';
 import { flattenNodes } from '@/lib/nodePath';
+import { SNAP_PX, dragWithSnap, type SnapContext } from '@/lib/nodeSnap';
 import { isAdditiveSelect } from '@/lib/selectionKeys';
 import { applyToPoint } from '@/lib/transform';
 import { useNodeEditStore } from '@/state/nodeEditStore';
@@ -103,6 +104,9 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
   const gesture = useRef<NodeGesture | null>(null);
   const lastPoint = useRef<Point2 | null>(null);
   const latest = useRef<Latest | null>(null);
+  // What the dragged nodes can land on (collected when the press starts a drag), and the one they have landed on, for the ring.
+  const snapCtx = useRef<SnapContext | null>(null);
+  const [snapMark, setSnapMark] = useState<Point2 | null>(null);
 
   const access = object ? editableNodes(object) : null;
   const nodes = access && access.ok ? access.nodes : null;
@@ -121,6 +125,8 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
       const g = gesture.current;
       const here = latest.current;
       gesture.current = null;
+      snapCtx.current = null;
+      setSnapMark(null);
       setBand(null);
       setDraft(null);
       if (!g || !here) return;
@@ -198,6 +204,7 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
           useNodeEditStore.getState().setSelection(r.selection);
           gesture.current = r.gesture;
           lastPoint.current = p;
+          snapCtx.current = r.gesture && r.gesture.kind === 'drag' ? snapContextFor(r.gesture.refs, world, pxToMm(SNAP_PX, scale, PX_PER_MM)) : null;
           setBand(bandBox(r.gesture));
         }}
         onMouseMove={(e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -205,11 +212,16 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
           if (!g) return;
           const p = worldAt(e);
           if (!p) return;
-          lastPoint.current = p;
-          const next = moveGesture(g, p, pxToMm(DRAG_START_PX, useViewStore.getState().scale, PX_PER_MM));
+          const scale = useViewStore.getState().scale;
+          const next = moveGesture(g, p, pxToMm(DRAG_START_PX, scale, PX_PER_MM));
           gesture.current = next;
+          // Holding Alt drags without snapping. The pointer is replaced by where the snap puts the nodes, so the live outline and
+          // what is committed on mouse up both use it.
+          const dragged = dragWithSnap(next, p, snapCtx.current, !e.evt.altKey, pxToMm(SNAP_PX, scale, PX_PER_MM));
+          lastPoint.current = dragged.point;
+          setSnapMark(dragged.target);
           if (next.kind === 'band') setBand(bandBox(next));
-          else setDraft(dragDraft(next, nodes, transform, p));
+          else setDraft(dragDraft(next, nodes, transform, dragged.point));
         }}
         onDblClick={(e: Konva.KonvaEventObject<MouseEvent>) => {
           if (e.evt.button !== 0) return;
@@ -226,6 +238,15 @@ export function NodeOverlay({ viewScale }: { viewScale: number }) {
       <Shape listening={false} stroke="#3b2a00" strokeWidth={1} strokeScaleEnabled={false} fill="#ffd27a" sceneFunc={(ctx, shape) => drawDiamonds(ctx, shape, handles.tips, half * 1.1)} />
       <Shape listening={false} stroke="#58d7ee" strokeWidth={1} strokeScaleEnabled={false} fill="#0b3a45" sceneFunc={(ctx, shape) => drawSquares(ctx, shape, markers.plain, half)} />
       <Shape listening={false} stroke="#3b2a00" strokeWidth={1} strokeScaleEnabled={false} fill="#ffb020" sceneFunc={(ctx, shape) => drawSquares(ctx, shape, markers.chosen, half)} />
+      {snapMark && (
+        <Shape
+          listening={false}
+          stroke="#3ddc84"
+          strokeWidth={2}
+          strokeScaleEnabled={false}
+          sceneFunc={(ctx, shape) => drawSquares(ctx, shape, [snapMark.x * PX_PER_MM, snapMark.y * PX_PER_MM], half * 2.2)}
+        />
+      )}
       {band && (
         <Rect
           listening={false}

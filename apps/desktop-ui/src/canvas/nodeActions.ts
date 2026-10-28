@@ -1,5 +1,7 @@
 // What node editing does to the project: start and stop it, and each edit as one undo step. The rules are in
 // lib/nodeEdit.ts and lib/nodePath.ts and are unit-tested; this file only connects them to the stores.
+import { fitAccess, fitOutlines, fitToleranceFor } from '@/lib/curveFit';
+import { buildSnapContext, type SnapContext } from '@/lib/nodeSnap';
 import { makeCurves, makeStraight, segmentsOfPick, setNodeMode, type HandleSide } from '@/lib/nodeCurves';
 import { editableNodes, insertAtWorldPoint, moveHandleWorld, moveSelectedWorld, nodeWorldPosition, planDelete, setNodeWorldPosition, validRefs } from '@/lib/nodeEdit';
 import { convertToOutlines, kindWithNodes, nodeAccess, type NodeRef } from '@/lib/nodePath';
@@ -175,6 +177,50 @@ export function straightenPicked(): void {
     return;
   }
   commitNodes(here.object.id, makeStraight(here.nodes, segments));
+}
+
+/**
+ * Fit curves: the outlines of an imported drawing, a trace, converted text or the result of a shape tool are replaced by the few curve
+ * nodes that follow them to within `toleranceMm` (lib/curveFit.ts), as ONE undo step. It works with or without node editing on. When
+ * the fit would not make the outline smaller nothing is changed.
+ */
+export function fitCurves(id: string, toleranceMm: number): boolean {
+  const object = objectById(id);
+  if (!object || object.kind.type !== 'vector') {
+    say('info', 'Select one outline to fit curves to.');
+    return false;
+  }
+  if (object.locked) {
+    say('info', 'This object is locked. Unlock it to fit curves.');
+    return false;
+  }
+  const access = fitAccess(object.kind);
+  if (!access.ok) {
+    say('info', access.message);
+    return false;
+  }
+  const tol = fitToleranceFor(toleranceMm);
+  const result = fitOutlines(object.kind.paths, tol);
+  if (result.after >= result.before) {
+    say('info', `There is nothing to gain: at ${tol} mm every point of this outline is needed. A larger distance would let it use fewer nodes.`);
+    return false;
+  }
+  commitNodes(id, result.nodes);
+  // The nodes are new ones, so a pick would point at the wrong ones.
+  if (useNodeEditStore.getState().editingId === id) useNodeEditStore.getState().setSelection([]);
+  say('info', `Fitted curves: ${result.before.toLocaleString('en-NZ')} points became ${result.after.toLocaleString('en-NZ')} nodes, within ${tol} mm of the old outline.`);
+  return true;
+}
+
+/**
+ * What the nodes being dragged can snap to, collected when the drag starts: the other nodes of this outline and the nodes or corners of
+ * the other visible objects (lib/nodeSnap.ts). Null when snapping is off or node editing is not on.
+ */
+export function snapContextFor(refs: readonly NodeRef[], worldNodes: readonly NodePath[], cellMm: number): SnapContext | null {
+  const edit = useNodeEditStore.getState();
+  const objects = useProjectStore.getState().project?.objects;
+  if (!edit.snap || edit.editingId === null || !objects || refs.length === 0) return null;
+  return buildSnapContext(objects, edit.editingId, worldNodes, refs, cellMm);
 }
 
 /** Esc: clears the pick, and stops node editing when nothing was picked. */
