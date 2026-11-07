@@ -22,8 +22,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use makerlaser_common::{
     BoundingBox, CutOrderStrategy, DitherAlgorithm as CommonDither, FillPattern, ImageData,
-    LaserOperation, Layer, ObjectKind, Path2D, Point2, ProjectFile, RasterOperation, ScanDirection,
-    Transform2D, WorkspaceObject,
+    LaserOperation, Layer, ObjectKind, Path2D, Point2, ProjectFile, RasterOperation,
+    RasterPowerMode, ScanDirection, Transform2D, WorkspaceObject,
 };
 use makerlaser_geometry::{kerf_compensate, KerfSide};
 use serde::{Deserialize, Serialize};
@@ -252,6 +252,32 @@ impl Builder {
             }
             self.draw(a, z, kind, layer);
         }
+        self.dark(run_out, layer);
+    }
+
+    /// One variable-power raster run with laser-off overscan on both sides.
+    fn powered_raster_run(
+        &mut self,
+        from: Point2,
+        to: Point2,
+        kind: MoveKind,
+        layer: &Layer,
+        bed: &BoundingBox,
+        power_percent: f64,
+    ) {
+        let length = from.distance_to(&to);
+        let (run_up, run_out) = if length > 1e-9 {
+            let (dx, dy) = ((to.x - from.x) / length, (to.y - from.y) / length);
+            (
+                extend_within_bed(from, -dx, -dy, layer.overscan_mm, bed),
+                extend_within_bed(to, dx, dy, layer.overscan_mm, bed),
+            )
+        } else {
+            (from, to)
+        };
+        self.travel_to(run_up);
+        self.dark(from, layer);
+        self.draw_powered(from, to, kind, layer, power_percent);
         self.dark(run_out, layer);
     }
 
@@ -689,18 +715,50 @@ pub fn generate_toolpath(
                     };
                     match raster_runs(obj, image, bytes, params) {
                         Ok(runs) => {
-                            let lines = if layer.overscan_mm > 0.0 {
-                                let horizontal = params.direction == ScanDirection::Horizontal;
-                                group_scan_lines(&runs, horizontal)
+                            let dithered = params.power_mode == RasterPowerMode::Dithered;
+                            let binary_runs: Vec<(Point2, Point2)> = if dithered {
+                                runs.iter().map(|run| (run.from, run.to)).collect()
                             } else {
                                 Vec::new()
                             };
+                            let lines = if dithered && layer.overscan_mm > 0.0 {
+                                let horizontal = params.direction == ScanDirection::Horizontal;
+                                group_scan_lines(&binary_runs, horizontal)
+                            } else {
+                                Vec::new()
+                            };
+
                             for _ in 0..passes {
-                                if layer.overscan_mm > 0.0 {
-                                    b.scan_lines(&lines, MoveKind::Engrave, layer, &bed);
+                                if dithered {
+                                    if layer.overscan_mm > 0.0 {
+                                        b.scan_lines(&lines, MoveKind::Engrave, layer, &bed);
+                                    } else {
+                                        for (from, to) in &binary_runs {
+                                            b.draw(*from, *to, MoveKind::Engrave, layer);
+                                        }
+                                    }
                                 } else {
-                                    for (a, z) in &runs {
-                                        b.draw(*a, *z, MoveKind::Engrave, layer);
+                                    for run in &runs {
+                                        let power = layer.power_percent * run.power_fraction;
+
+                                        if layer.overscan_mm > 0.0 {
+                                            b.powered_raster_run(
+                                                run.from,
+                                                run.to,
+                                                MoveKind::Engrave,
+                                                layer,
+                                                &bed,
+                                                power,
+                                            );
+                                        } else {
+                                            b.draw_powered(
+                                                run.from,
+                                                run.to,
+                                                MoveKind::Engrave,
+                                                layer,
+                                                power,
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -1114,13 +1172,74 @@ fn to_raster_dither(d: CommonDither) -> makerlaser_raster::DitherAlgorithm {
     }
 }
 
-/// Runs of pixels to burn, as `(start, end)` workspace points in scan order.
+fn push_raster_run(
+    out: &mut Vec<RasterRun>,
+    run: (u32, u32, f64),
+    p: u32,
+    horizontal: bool,
+    reverse: bool,
+    bbox: &BoundingBox,
+    dx: f64,
+    dy: f64,
+) {
+    let (first, last, power_fraction) = run;
+    let lo = first.min(last);
+    let hi = first.max(last);
+    let (mut a, mut z) = if horizontal {
+        let y = bbox.min.y + (p as f64 + 0.5) * dy;
+        (
+            Point2::new(bbox.min.x + lo as f64 * dx, y),
+            Point2::new(bbox.min.x + (hi as f64 + 1.0) * dx, y),
+        )
+    } else {
+        let x = bbox.min.x + (p as f64 + 0.5) * dx;
+        (
+            Point2::new(x, bbox.min.y + lo as f64 * dy),
+            Point2::new(x, bbox.min.y + (hi as f64 + 1.0) * dy),
+        )
+    };
+    if reverse {
+        std::mem::swap(&mut a, &mut z);
+    }
+    out.push(RasterRun {
+        from: a,
+        to: z,
+        power_fraction,
+    });
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RasterRun {
+    from: Point2,
+    to: Point2,
+    power_fraction: f64,
+}
+
+/// JPEG cameras commonly store portrait photographs as landscape pixels plus an orientation tag.
+/// Browsers honour that tag when they display the imported picture, while the raster decoder returns
+/// the stored pixel matrix. If the decoded dimensions are the exact transpose of the project image
+/// dimensions, turn the pixels clockwise so CAM sees the same orientation as the canvas.
+fn orient_source_like_project(source: image::GrayImage, image: &ImageData) -> image::GrayImage {
+    let decoded = source.dimensions();
+    let project = (image.width_px, image.height_px);
+    let transposed = decoded.0 == project.1
+        && decoded.1 == project.0
+        && decoded.0 != decoded.1
+        && project.0 != project.1;
+    if transposed {
+        image::imageops::rotate90(&source)
+    } else {
+        source
+    }
+}
+
+/// Runs of pixels to burn, with a 0..1 fraction of the layer's maximum power.
 fn raster_runs(
     obj: &WorkspaceObject,
     image: &ImageData,
     bytes: &[u8],
     params: &RasterOperation,
-) -> Result<Vec<(Point2, Point2)>> {
+) -> Result<Vec<RasterRun>> {
     let err = |m: &str| ProjectError::Raster(m.to_string());
     let bbox = obj
         .world_bounding_box()
@@ -1145,6 +1264,7 @@ fn raster_runs(
         .ok_or_else(|| err("the image transform is degenerate"))?;
     let source = makerlaser_raster::load_grayscale(bytes)
         .map_err(|e| ProjectError::Raster(format!("cannot decode the image: {e}")))?;
+    let source = orient_source_like_project(source, image);
     let (nat_w, nat_h) = image.natural_size_mm();
     let scale_x = obj.transform.a.hypot(obj.transform.b);
     let scale_y = obj.transform.c.hypot(obj.transform.d);
@@ -1183,8 +1303,15 @@ fn raster_runs(
     }
     .apply(&resampled.image);
     let adjusted = makerlaser_raster::sharpen(&adjusted, params.sharpen);
-    let dithered =
-        makerlaser_raster::dither(&adjusted, to_raster_dither(params.dither), params.threshold);
+    let dithered = if params.power_mode == RasterPowerMode::Dithered {
+        Some(makerlaser_raster::dither(
+            &adjusted,
+            to_raster_dither(params.dither),
+            params.threshold,
+        ))
+    } else {
+        None
+    };
 
     let horizontal = params.direction == ScanDirection::Horizontal;
     let (n_primary, n_secondary) = if horizontal {
@@ -1192,54 +1319,69 @@ fn raster_runs(
     } else {
         (cols, rows)
     };
-    let mut out: Vec<(Point2, Point2)> = Vec::new();
+    let mut out: Vec<RasterRun> = Vec::new();
+    let min_fraction = (params.min_power_percent / 100.0).clamp(0.0, 1.0);
+    let levels = params.power_levels.clamp(2, 32) as f64;
 
     for p in 0..n_primary {
         let reverse = params.bidirectional && p % 2 == 1;
-        let mut runs: Vec<(u32, u32)> = Vec::new();
-        let mut current: Option<(u32, u32)> = None;
-        for s in 0..n_secondary {
-            let (c, r) = if horizontal { (s, p) } else { (p, s) };
+        let samples: Box<dyn Iterator<Item = u32>> = if reverse {
+            Box::new((0..n_secondary).rev())
+        } else {
+            Box::new(0..n_secondary)
+        };
+        let mut current: Option<(u32, u32, f64)> = None;
+        for sidx in samples {
+            let (c, r) = if horizontal { (sidx, p) } else { (p, sidx) };
             let idx = r as usize * cols as usize + c as usize;
-            let burn = dithered.get_pixel(c, r).0[0] == 0 && resampled.inside[idx];
-            current = match (burn, current) {
-                (true, Some((first, _))) => Some((first, s)),
-                (true, None) => Some((s, s)),
-                (false, Some(run)) => {
-                    runs.push(run);
-                    None
+            let grey = adjusted.get_pixel(c, r).0[0];
+            let mut fraction = if !resampled.inside[idx] {
+                0.0
+            } else if let Some(ref binary) = dithered {
+                if binary.get_pixel(c, r).0[0] == 0 {
+                    1.0
+                } else {
+                    0.0
                 }
-                (false, None) => None,
+            } else if grey >= params.white_cutoff {
+                0.0
+            } else {
+                let darkness = 1.0 - grey as f64 / 255.0;
+                min_fraction + darkness * (1.0 - min_fraction)
+            };
+            if params.power_mode == RasterPowerMode::Quantized && fraction > 0.0 {
+                fraction = (fraction * (levels - 1.0)).round() / (levels - 1.0);
+                fraction = fraction.max(min_fraction);
+            }
+            // GRBL S values are integral, so continuous mode is usefully coalesced to 256 levels.
+            if params.power_mode == RasterPowerMode::Grayscale && fraction > 0.0 {
+                fraction = (fraction * 255.0).round() / 255.0;
+            }
+            current = match current {
+                Some((first, last, old))
+                    if fraction > 0.0
+                        && (fraction - old).abs() < 1e-9
+                        && (sidx as i64 - last as i64).abs() == 1 =>
+                {
+                    Some((first, sidx, old))
+                }
+                Some(run) => {
+                    push_raster_run(&mut out, run, p, horizontal, reverse, &bbox, dx, dy);
+                    if fraction > 0.0 {
+                        Some((sidx, sidx, fraction))
+                    } else {
+                        None
+                    }
+                }
+                None if fraction > 0.0 => Some((sidx, sidx, fraction)),
+                None => None,
             };
         }
         if let Some(run) = current {
-            runs.push(run);
-        }
-        if reverse {
-            runs.reverse();
-        }
-        for (first, last) in runs {
-            let (a, z) = if horizontal {
-                let y = bbox.min.y + (p as f64 + 0.5) * dy;
-                (
-                    Point2::new(bbox.min.x + first as f64 * dx, y),
-                    Point2::new(bbox.min.x + (last as f64 + 1.0) * dx, y),
-                )
-            } else {
-                let x = bbox.min.x + (p as f64 + 0.5) * dx;
-                (
-                    Point2::new(x, bbox.min.y + first as f64 * dy),
-                    Point2::new(x, bbox.min.y + (last as f64 + 1.0) * dy),
-                )
-            };
-            out.push(if reverse { (z, a) } else { (a, z) });
-        }
-        if out.len() > MAX_SEGMENTS {
-            return Err(ProjectError::TooLarge(
-                "The raster needs too many moves; lower the DPI.".to_string(),
-            ));
+            push_raster_run(&mut out, run, p, horizontal, reverse, &bbox, dx, dy);
         }
     }
+
     Ok(out)
 }
 
@@ -1583,6 +1725,75 @@ mod tests {
     }
 
     #[test]
+    fn portrait_metadata_turns_transposed_camera_pixels_clockwise() {
+        // Stored landscape pixels become the same 2 x 3 portrait orientation shown by the browser.
+        let mut raw = image::GrayImage::from_pixel(3, 2, image::Luma([255]));
+        raw.put_pixel(0, 1, image::Luma([0]));
+        let metadata = ImageData {
+            asset_id: Uuid::nil(),
+            format: ImageFormat::Jpeg,
+            source_path: None,
+            width_px: 2,
+            height_px: 3,
+            dpi: 254.0,
+        };
+        let fixed = orient_source_like_project(raw, &metadata);
+        assert_eq!(fixed.dimensions(), (2, 3));
+        assert_eq!(fixed.get_pixel(0, 0).0[0], 0);
+    }
+
+    #[test]
+    fn matching_landscape_and_square_pixels_are_not_turned() {
+        for (w, h) in [(4, 2), (3, 3)] {
+            let mut raw = image::GrayImage::from_pixel(w, h, image::Luma([255]));
+            raw.put_pixel(0, 0, image::Luma([0]));
+            let metadata = ImageData {
+                asset_id: Uuid::nil(),
+                format: ImageFormat::Png,
+                source_path: None,
+                width_px: w,
+                height_px: h,
+                dpi: 254.0,
+            };
+            assert_eq!(orient_source_like_project(raw.clone(), &metadata), raw);
+        }
+    }
+
+    #[test]
+    fn horizontal_and_vertical_scan_keep_the_same_artwork_corner() {
+        // Black only at source top-left. Scan direction changes travel, not image orientation.
+        let rows = [[0, 255, 255, 255], [255; 4]];
+        let (mut horizontal, bytes) = raster_project(rows, false);
+        horizontal
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap()
+            .raster
+            .direction = ScanDirection::Horizontal;
+        let mut vertical = horizontal.clone();
+        vertical
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap()
+            .raster
+            .direction = ScanDirection::Vertical;
+        let h = engrave(&horizontal, &bytes);
+        let v = engrave(&vertical, &bytes);
+        assert_eq!(h.len(), 1);
+        assert_eq!(v.len(), 1);
+        let near_top_left =
+            |s: &ToolpathSegment| s.from.x.min(s.to.x) < 0.11 && s.from.y.min(s.to.y) < 0.11;
+        assert!(
+            near_top_left(&h[0]),
+            "horizontal changed artwork: {:?}",
+            h[0]
+        );
+        assert!(near_top_left(&v[0]), "vertical changed artwork: {:?}", v[0]);
+    }
+
+    #[test]
     fn raster_runs_cover_exactly_the_black_pixels() {
         // Row 0: black black white black; row 1: all white.
         let (p, bytes) = raster_project([[0, 0, 255, 0], [255; 4]], false);
@@ -1615,6 +1826,41 @@ mod tests {
             segs[1].from.x < segs[1].to.x,
             "unidirectional keeps one direction"
         );
+    }
+
+    #[test]
+    fn grayscale_raster_varies_power_with_tone() {
+        let (mut p, bytes) = raster_project([[0, 64, 128, 255], [255; 4]], false);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap();
+        layer.power_percent = 80.0;
+        layer.raster.power_mode = RasterPowerMode::Grayscale;
+        layer.raster.white_cutoff = 250;
+        let segs = engrave(&p, &bytes);
+        assert_eq!(segs.len(), 3);
+        assert!(segs[0].power_percent > segs[1].power_percent);
+        assert!(segs[1].power_percent > segs[2].power_percent);
+        assert_eq!(segs[0].power_percent, 80.0);
+    }
+
+    #[test]
+    fn quantized_raster_uses_only_the_requested_power_levels() {
+        let (mut p, bytes) = raster_project([[0, 64, 128, 192], [255; 4]], false);
+        let layer = p
+            .layers
+            .iter_mut()
+            .find(|l| l.kind == LayerKind::Image)
+            .unwrap();
+        layer.raster.power_mode = RasterPowerMode::Quantized;
+        layer.raster.power_levels = 4;
+        let powers: std::collections::BTreeSet<_> = engrave(&p, &bytes)
+            .into_iter()
+            .map(|s| (s.power_percent * 1000.0).round() as i64)
+            .collect();
+        assert!(powers.len() <= 4);
     }
 
     #[test]

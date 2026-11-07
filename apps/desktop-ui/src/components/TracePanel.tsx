@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { NumberField } from '@/components/NumberField';
 import { PanelField, PanelGroup, PanelSlider, PanelTick, fullWidth, hintStyle, twoColumns } from '@/components/PanelParts';
 import { ZoomPreview } from '@/components/ZoomPreview';
@@ -36,7 +36,7 @@ type Say = { ok: boolean; text: string; key: string } | null;
 /**
  * Trace: turns the selected picture into outlines (vector paths) you can cut, score or engrave as a fill, and
  * combine or offset with Shape tools. It is the "Trace" tab of the right-hand panel (RightTabs.tsx), also
- * opened by the toolbar button "Trace…". A preview shows the outlines over the picture and follows every
+ * opened by the toolbar button "Traceâ€¦". A preview shows the outlines over the picture and follows every
  * setting as you change it; you can zoom and move it to check small areas (ZoomPreview.tsx). "Make outlines"
  * adds them as one new object, placed exactly over the picture, in one undo step.
  *
@@ -51,6 +51,14 @@ export function TracePanel({ active }: { active: boolean }) {
   const mutate = useProjectStore((s) => s.mutate);
   const setSelection = useProjectStore((s) => s.setSelection);
   const [settings, setSettings] = useState<TraceSettings>({ ...DEFAULT_TRACE_SETTINGS });
+  const applyPreset = (preset: 'logo' | 'photo' | 'detailed') => {
+    const next: Record<typeof preset, TraceSettings> = {
+      logo: { ...DEFAULT_TRACE_SETTINGS, threshold: 128, smoothing: 2, detail: 0, adaptive: 0, ignoreSpecksMm2: 0.2, simplifyMm: 0.05 },
+      photo: { ...DEFAULT_TRACE_SETTINGS, threshold: 145, smoothing: 2, contrast: 12, gamma: 0.9, detail: 45, adaptive: 55, ignoreSpecksMm2: 0.05, simplifyMm: 0.03 },
+      detailed: { ...DEFAULT_TRACE_SETTINGS, threshold: 155, smoothing: 1, contrast: 18, gamma: 0.85, detail: 70, adaptive: 75, ignoreSpecksMm2: 0.01, simplifyMm: 0.02 },
+    };
+    setSettings(next[preset]);
+  };
   const [layerPick, setLayerPick] = useState<string | null>(null);
   const [after, setAfter] = useState<PictureAfter>('hide');
   const [loaded, setLoaded] = useState<{ assetId: string; picture: LoadedPicture } | null>(null);
@@ -195,7 +203,7 @@ export function TracePanel({ active }: { active: boolean }) {
         )}
         {plan && plan.ok && !failedText && !picture && (
           <p className="hint" style={hintStyle}>
-            Reading the picture…
+            Reading the pictureâ€¦
           </p>
         )}
         {picture && (
@@ -219,12 +227,70 @@ export function TracePanel({ active }: { active: boolean }) {
               Show the picture under the outlines
             </PanelTick>
             <p className="hint" role="status" style={hintStyle}>
-              {problems[0] ?? (fresh && scale ? (tooMuchToDraw ? `${traceSummary(fresh.paths, scale)} Too much detail to draw: raise Ignore specks or Simplify.` : traceSummary(fresh.paths, scale)) : 'Tracing…')}
+              {problems[0] ?? (fresh && scale ? (tooMuchToDraw ? `${traceSummary(fresh.paths, scale)} Too much detail to draw: raise Ignore specks or Simplify.` : traceSummary(fresh.paths, scale)) : 'Tracingâ€¦')}
             </p>
           </>
         )}
       </PanelGroup>
 
+      <PanelGroup title="Image type">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 6,
+          }}
+        >
+          <button onClick={() => applyPreset('logo')}>Logo</button>
+          <button onClick={() => applyPreset('photo')}>Photo</button>
+          <button onClick={() => applyPreset('detailed')}>Detailed</button>
+        </div>
+        <p className="hint" style={hintStyle}>
+          Photo presets recover local contrast before tracing. Detailed keeps
+          more texture and may make a slower job.
+        </p>
+      </PanelGroup>
+
+      <PanelGroup title="Tone and detail">
+        <PanelSlider
+          label="Brightness"
+          value={settings.brightness}
+          min={-100}
+          max={100}
+          onChange={(v) => set('brightness', v)}
+        />
+        <PanelSlider
+          label="Contrast"
+          value={settings.contrast}
+          min={-100}
+          max={100}
+          onChange={(v) => set('contrast', v)}
+        />
+        <PanelSlider
+          label="Gamma"
+          value={settings.gamma}
+          min={0.1}
+          max={3}
+          step={0.05}
+          onChange={(v) => set('gamma', v)}
+        />
+        <PanelSlider
+          label="Local detail"
+          title="Restores useful small and medium features after smoothing."
+          value={settings.detail}
+          min={0}
+          max={100}
+          onChange={(v) => set('detail', v)}
+        />
+        <PanelSlider
+          label="Adaptive threshold"
+          title="Uses surrounding brightness as well as the global threshold, so bright and dark parts of a photograph can both retain detail."
+          value={settings.adaptive}
+          min={0}
+          max={100}
+          onChange={(v) => set('adaptive', v)}
+        />
+      </PanelGroup>
       <PanelGroup title="Settings">
         <PanelSlider
           label="Threshold"
@@ -246,7 +312,7 @@ export function TracePanel({ active }: { active: boolean }) {
           onChange={(v) => set('smoothing', v)}
         />
         <div style={twoColumns}>
-          <PanelField label="Ignore specks (mm²)" title="Outlines that enclose less than this area are left out, and so are holes that small. 0 keeps everything.">
+          <PanelField label="Ignore specks (mm^2)" title="Outlines that enclose less than this area are left out, and so are holes that small. 0 keeps everything.">
             <NumberField value={settings.ignoreSpecksMm2} min={0} max={MAX_SPECKS_MM2} title="Outlines smaller than this area are left out" onCommit={(v) => set('ignoreSpecksMm2', v)} />
           </PanelField>
           <PanelField label="Simplify (mm)" title="Takes points off the outlines while keeping them within this distance of the traced line. 0 keeps every point.">
@@ -292,3 +358,5 @@ export function TracePanel({ active }: { active: boolean }) {
     </section>
   );
 }
+
+

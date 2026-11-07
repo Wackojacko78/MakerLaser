@@ -17,7 +17,7 @@ import { applyPresetToLayer, extrasFromLayer, findMatchingPreset, presetAppliedM
 import { api } from '@/lib/tauri';
 import { useNoticeStore } from '@/state/noticeStore';
 import { useProjectStore } from '@/state/projectStore';
-import type { DitherAlgorithm, Layer, RasterOperation } from '@/types/domain';
+import type { DitherAlgorithm, Layer, RasterOperation, RasterPowerMode } from '@/types/domain';
 
 const DITHERS: Array<[DitherAlgorithm, string]> = [
   ['floyd_steinberg', 'Floyd-Steinberg'],
@@ -27,7 +27,7 @@ const DITHERS: Array<[DitherAlgorithm, string]> = [
   ['none', 'Threshold (no dither)'],
 ];
 
-/** A live dithered preview of the first image on the layer, using the layer's settings. */
+/** A live raster preview of the first image on the layer, using the layer's settings. */
 function RasterPreview({ assetId, params }: { assetId: string; params: RasterOperation }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ function RasterPreview({ assetId, params }: { assetId: string; params: RasterOpe
 
   if (error) return <p className="hint">Preview unavailable: {error}</p>;
   if (!url) return <p className="hint">Rendering preview…</p>;
-  return <img className="raster-preview" src={url} alt="Dithered engraving preview" />;
+  return <img className="raster-preview" src={url} alt="Image engraving preview" />;
 }
 
 function LayerCard({
@@ -289,13 +289,43 @@ function LayerCard({
             <label>Resolution</label>
             <NumberField value={layer.raster.dpi} min={25} max={2540} onCommit={(v) => patchRaster('dpi', Math.round(v))} />
             <span className="unit">DPI</span>
-            <label>Dither</label>
-            <select value={layer.raster.dither} onChange={(e) => patchRaster('dither', e.target.value as DitherAlgorithm)}>
-              {DITHERS.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
+            <label>Output</label>
+            <select value={layer.raster.power_mode ?? 'quantized'} onChange={(e) => patchRaster('power_mode', e.target.value as RasterPowerMode)}>
+              <option value="dithered">Dithered (on/off)</option>
+              <option value="grayscale">Grayscale power</option>
+              <option value="quantized">Quantized power</option>
             </select>
             <span className="unit" />
+            {(layer.raster.power_mode ?? 'quantized') === 'dithered' && (
+              <>
+                <label>Dither</label>
+                <select value={layer.raster.dither} onChange={(e) => patchRaster('dither', e.target.value as DitherAlgorithm)}>
+                  {DITHERS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <span className="unit" />
+              </>
+            )}
+            {(layer.raster.power_mode ?? 'quantized') !== 'dithered' && (
+              <>
+                <label title="The lowest power used for a visible tone, as a percentage of the layer Power above">Minimum power</label>
+                <NumberField value={layer.raster.min_power_percent ?? 0} min={0} max={100} onCommit={(v) => patchRaster('min_power_percent', v)} />
+                <span className="unit">% of maximum</span>
+                <label title="Pixels at this grey level or lighter are left blank">White cutoff</label>
+                <NumberField value={layer.raster.white_cutoff ?? 250} min={0} max={255} onCommit={(v) => patchRaster('white_cutoff', Math.round(v))} />
+                <span className="unit">0 to 255</span>
+              </>
+            )}
+            {(layer.raster.power_mode ?? 'quantized') === 'quantized' && (
+              <>
+                <label>Power levels</label>
+                <select value={layer.raster.power_levels ?? 16} onChange={(e) => patchRaster('power_levels', Number(e.target.value))}>
+                  {[2, 4, 8, 16, 32].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span className="unit" />
+              </>
+            )}
             <label>Scan</label>
             <select value={layer.raster.direction} onChange={(e) => patchRaster('direction', e.target.value as RasterOperation['direction'])}>
               <option value="horizontal">Horizontal</option>

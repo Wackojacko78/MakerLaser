@@ -254,6 +254,23 @@ mod tests {
     }
 
     #[test]
+    fn natural_size_preserves_pixel_aspect_ratio() {
+        let image = ImageData {
+            asset_id: Uuid::new_v4(),
+            format: ImageFormat::Jpeg,
+            source_path: None,
+            width_px: 400,
+            height_px: 200,
+            dpi: 96.0,
+        };
+        let (w, h) = image.natural_size_mm();
+        assert!((w / h - 2.0).abs() < 1e-12);
+        let object = WorkspaceObject::new_image("wide", image, 0);
+        let bounds = object.world_bounding_box().unwrap();
+        assert!((bounds.width() / bounds.height() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn natural_size_at_300_dpi() {
         let (w, h) = sample_image().natural_size_mm();
         assert!((w - 25.4).abs() < 1e-6 && (h - 50.8).abs() < 1e-6);

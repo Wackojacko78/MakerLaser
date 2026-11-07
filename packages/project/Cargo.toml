@@ -8,15 +8,16 @@ license.workspace = true
 description = "CAM engine: operation planning, toolpath generation, GRBL G-code, safety checks and the .mlp project format."
 
 [dependencies]
-makerlaser-common.workspace = true
-makerlaser-geometry.workspace = true
-makerlaser-raster.workspace = true
+makerlaser-common = { path = "../common" }
+makerlaser-geometry = { path = "../geometry" }
+makerlaser-raster = { path = "../raster" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 log.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }

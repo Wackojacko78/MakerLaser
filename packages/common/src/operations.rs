@@ -86,9 +86,35 @@ pub enum ScanDirection {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RasterPowerMode {
+    Dithered,
+    Grayscale,
+    Quantized,
+}
+
+fn default_power_mode() -> RasterPowerMode {
+    RasterPowerMode::Dithered
+}
+fn default_power_levels() -> u8 {
+    8
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RasterOperation {
     pub dpi: u32,
+    #[serde(default = "default_power_mode")]
+    pub power_mode: RasterPowerMode,
+    /// Lowest non-zero power, as a percentage of the layer's Power (maximum).
+    #[serde(default)]
+    pub min_power_percent: f64,
+    /// Number of tonal levels in quantized mode (2..=32).
+    #[serde(default = "default_power_levels")]
+    pub power_levels: u8,
+    /// Pixels this light or lighter are skipped in grayscale modes (0..=255).
+    #[serde(default = "default_white_cutoff")]
+    pub white_cutoff: u8,
     pub dither: DitherAlgorithm,
     pub direction: ScanDirection,
     pub bidirectional: bool,
@@ -115,11 +141,18 @@ pub const MAX_SHARPEN: f64 = 100.0;
 fn default_threshold() -> u8 {
     128
 }
+fn default_white_cutoff() -> u8 {
+    250
+}
 
 impl Default for RasterOperation {
     fn default() -> Self {
         RasterOperation {
             dpi: 254, // 10 lines/mm
+            power_mode: RasterPowerMode::Dithered,
+            min_power_percent: 0.0,
+            power_levels: 8,
+            white_cutoff: 250,
             dither: DitherAlgorithm::FloydSteinberg,
             direction: ScanDirection::Horizontal,
             bidirectional: true,

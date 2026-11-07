@@ -11,6 +11,8 @@ export interface PreparedToolpath {
   /** x0, y0, x1, y1 per segment, in workspace mm. */
   coords: Float32Array;
   kinds: Uint8Array;
+  /** Laser power percentage for each segment. */
+  powers: Float32Array;
   count: number;
 }
 
@@ -18,6 +20,7 @@ export function prepareToolpath(segments: PreviewSegment[]): PreparedToolpath {
   const count = segments.length;
   const coords = new Float32Array(count * 4);
   const kinds = new Uint8Array(count);
+  const powers = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const s = segments[i];
     coords[i * 4] = s[0];
@@ -25,8 +28,9 @@ export function prepareToolpath(segments: PreviewSegment[]): PreparedToolpath {
     coords[i * 4 + 2] = s[2];
     coords[i * 4 + 3] = s[3];
     kinds[i] = s[4];
+    powers[i] = s[5] ?? (s[4] === KIND_TRAVEL ? 0 : 100);
   }
-  return { coords, kinds, count };
+  return { coords, kinds, powers, count };
 }
 
 /** Number of segments to draw for a replay fraction in [0, 1]. */

@@ -854,3 +854,29 @@ State first: main is at 8a82cd0, tree clean, CI #75 green on the branch. Node ed
 - Known limits: Offset, Combine, Fillet and Trace still give straight-sided results with no nodes (accepted). Pixelated traces need a Fit curves distance bigger than their pixels.
 - Not done and needs the laser (Lee's job, not the assistant's): the hardware tests and the 0.2.0 release (needs the laser and the focus cylinder); a real cut on scrap to find a tab width that suits the material; trying the new presets (tab width, threshold, sharpen) on real material. The version is still 0.1.0.
 - To resume node work the assistant needs, uploaded as one Bundle: apps/desktop-ui/src/lib/{nodePath,nodeEdit,nodeCurves,nodeSnap,curveFit,shapeNodes}.ts, canvas/{nodeActions.ts,NodeOverlay.tsx,useNodeEdit.ts}, components/NodesPanel.tsx, state/nodeEditStore.ts, types/domain.ts, tests/node*.test.ts, docs/canvas-interactions.md, docs/project-format.md, plus STATUS.md.
+
+## Image processing update (branch `image-processing`, 2026-11-02)
+
+Prepared a first photographic trace improvement for testing:
+
+- Trace presets: Logo, Photo and Detailed.
+- Non-destructive brightness, contrast and gamma controls.
+- Local-detail recovery after smoothing.
+- Adaptive thresholding, blending the global threshold with neighbourhood brightness so detail is retained in both bright and dark regions.
+- Existing speck removal, simplification, placement and output-layer behaviour are retained.
+
+This is Stage 1 vector preprocessing. Variable-power grayscale engraving is deliberately a separate Stage 2 because it requires per-segment power in the raster toolpath/G-code pipeline, a material response curve, preview changes and calibration tests.
+
+Verification note: the source bundle was reconstructed successfully. The sandbox npm dependency installation was interrupted by the execution time limit and left third-party `.d.ts` files incomplete, so run the normal typecheck, lint and UI tests on the development PC before merging.
+
+
+## Image engraving Stage 2 (variable power)
+
+- Added image-layer output modes: Dithered, Grayscale power, and Quantized power.
+- Grayscale and quantized modes convert adjusted pixel tone into per-run `M4 S` power.
+- Added minimum power, white cutoff, and 2/4/8/16/32-level quantization controls.
+- Adjacent pixels at the same power are merged into one run; blank pixels are skipped.
+- Bidirectional and horizontal/vertical scanning remain supported.
+- Overscan remains laser-off and every generated job still finishes with `M5`.
+- Added tonal previews and Rust tests for variable and quantized power.
+- Next: run `npm run ui:typecheck`, `npm run ui:lint`, `npm run ui:test`, and `cargo test --workspace`, then test G-code using the simulator before a low-power scrap engraving.

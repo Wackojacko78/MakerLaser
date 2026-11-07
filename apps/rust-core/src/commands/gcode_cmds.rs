@@ -33,9 +33,8 @@ pub struct GenerateResponse {
     /// First lines of the program, for the G-code tab.
     pub gcode_preview: String,
     pub line_count: usize,
-    /// `[x0, y0, x1, y1, kind]` per move in workspace mm; kind: 0 travel, 1 cut, 2 score,
-    /// 3 fill, 4 engrave.
-    pub segments: Vec<[f32; 5]>,
+    /// `[x0, y0, x1, y1, kind, power_percent]` per move in workspace mm.
+    pub segments: Vec<[f32; 6]>,
     pub preview_simplified: bool,
     pub stats: ToolpathStats,
     pub safety: SafetyReport,
@@ -83,7 +82,7 @@ pub fn generate_gcode(state: State<'_, AppState>) -> Result<GenerateResponse, St
     } else {
         1
     };
-    let segments: Vec<[f32; 5]> = all
+    let segments: Vec<[f32; 6]> = all
         .iter()
         .enumerate()
         .filter(|(i, _)| i % stride == 0)
@@ -94,6 +93,7 @@ pub fn generate_gcode(state: State<'_, AppState>) -> Result<GenerateResponse, St
                 round2(s.to.x),
                 round2(s.to.y),
                 kind_code(s.kind),
+                s.power_percent as f32,
             ]
         })
         .collect();

@@ -153,8 +153,20 @@ pub fn raster_preview(
         }
     };
     let adjusted = makerlaser_raster::sharpen(&adjusted, params.sharpen);
-    let dithered = makerlaser_raster::dither(&adjusted, algorithm, params.threshold);
-    let png = makerlaser_raster::encode_png(&dithered).map_err(|e| e.to_string())?;
+    let preview = match params.power_mode {
+        makerlaser_common::RasterPowerMode::Dithered => {
+            makerlaser_raster::dither(&adjusted, algorithm, params.threshold)
+        }
+        makerlaser_common::RasterPowerMode::Grayscale => adjusted,
+        makerlaser_common::RasterPowerMode::Quantized => {
+            let levels = params.power_levels.clamp(2, 32) as f64;
+            image::GrayImage::from_fn(adjusted.width(), adjusted.height(), |x, y| {
+                let v = adjusted.get_pixel(x, y).0[0] as f64 / 255.0;
+                image::Luma([((v * (levels - 1.0)).round() / (levels - 1.0) * 255.0).round() as u8])
+            })
+        }
+    };
+    let png = makerlaser_raster::encode_png(&preview).map_err(|e| e.to_string())?;
     Ok(Some(data_url(&png)))
 }
 
