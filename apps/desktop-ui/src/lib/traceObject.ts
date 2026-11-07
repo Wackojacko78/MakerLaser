@@ -94,6 +94,11 @@ export interface TraceSettings {
   threshold: number;
   invert: boolean;
   smoothing: number;
+  brightness: number;
+  contrast: number;
+  gamma: number;
+  detail: number;
+  adaptive: number;
   /** Outlines enclosing less than this many square millimetres are dropped. */
   ignoreSpecksMm2: number;
   /** Outlines are simplified to within this many millimetres. */
@@ -104,13 +109,18 @@ export const DEFAULT_TRACE_SETTINGS: Readonly<TraceSettings> = {
   threshold: 128,
   invert: false,
   smoothing: 3,
+  brightness: 0,
+  contrast: 0,
+  gamma: 1,
+  detail: 0,
+  adaptive: 0,
   ignoreSpecksMm2: 0.2,
   simplifyMm: 0.05,
 };
 
 /** Problems with the settings (empty when valid). */
 export function validateTraceSettings(s: TraceSettings): string[] {
-  const problems = validateTraceOptions({ threshold: s.threshold, invert: s.invert, smoothing: s.smoothing, minAreaPx: 0, tolerancePx: 0 });
+  const problems = validateTraceOptions({ threshold: s.threshold, invert: s.invert, smoothing: s.smoothing, brightness: s.brightness, contrast: s.contrast, gamma: s.gamma, detail: s.detail, adaptive: s.adaptive, minAreaPx: 0, tolerancePx: 0 });
   if (!Number.isFinite(s.ignoreSpecksMm2) || s.ignoreSpecksMm2 < 0 || s.ignoreSpecksMm2 > MAX_SPECKS_MM2) {
     problems.push(`Ignore specks must be from 0 to ${MAX_SPECKS_MM2} mm\u00b2.`);
   }
@@ -130,6 +140,11 @@ export function traceOptionsFor(s: TraceSettings, scale: TraceScale, enlarged = 
     threshold: s.threshold,
     invert: s.invert,
     smoothing: s.smoothing,
+    brightness: s.brightness,
+    contrast: s.contrast,
+    gamma: s.gamma,
+    detail: s.detail,
+    adaptive: s.adaptive,
     blurScale: Number.isFinite(enlarged) && enlarged > 1 ? enlarged : 1,
     minAreaPx: known ? finite(s.ignoreSpecksMm2) / (scale.mmPerPx * scale.mmPerPx) : 0,
     tolerancePx: known ? finite(s.simplifyMm) / scale.mmPerPx : 0,

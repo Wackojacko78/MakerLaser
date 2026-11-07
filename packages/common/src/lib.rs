@@ -18,6 +18,6 @@ pub use nodes::{Handle, NodeMode, NodePath, PathNode};
 pub use objects::{ImageData, ImageFormat, ObjectKind, VectorData, WorkspaceObject};
 pub use operations::{
     CutOperation, CutOrderStrategy, DitherAlgorithm, FillOperation, FillPattern, LaserOperation,
-    RasterOperation, ScanDirection, ScoreOperation,
+    RasterOperation, RasterPowerMode, ScanDirection, ScoreOperation,
 };
 pub use project::{ProjectFile, ProjectSettings, Units, PROJECT_SCHEMA_VERSION};

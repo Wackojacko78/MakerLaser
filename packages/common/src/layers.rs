@@ -198,6 +198,17 @@ impl Layer {
                 MIN_TAB_SPACING_MM, MAX_TAB_SPACING_MM
             ));
         }
+        if self.kind == LayerKind::Image && !(0.0..=100.0).contains(&self.raster.min_power_percent)
+        {
+            problems.push(format!(
+                "Layer '{n}': raster minimum power must be between 0 and 100%"
+            ));
+        }
+        if self.kind == LayerKind::Image && !(2..=32).contains(&self.raster.power_levels) {
+            problems.push(format!(
+                "Layer '{n}': raster power levels must be between 2 and 32"
+            ));
+        }
         if self.kind == LayerKind::Image && !(0.0..=MAX_SHARPEN).contains(&self.raster.sharpen) {
             problems.push(format!(
                 "Layer '{n}': sharpen must be between 0 and {:.0}",

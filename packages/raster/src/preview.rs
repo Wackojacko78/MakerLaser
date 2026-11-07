@@ -1,11 +1,22 @@
 //! Image decoding, resampling and PNG encoding helpers.
 
-use image::{GrayImage, ImageError, Luma};
+use image::{
+    metadata::Orientation, DynamicImage, GrayImage, ImageDecoder, ImageError, ImageReader, Luma,
+};
+use std::io::Cursor;
 
 /// Decodes PNG/JPG/JPEG/BMP bytes to 8-bit grayscale. Transparent pixels are composited
 /// onto white first, so a transparent background never burns as black.
 pub fn load_grayscale(bytes: &[u8]) -> Result<GrayImage, ImageError> {
-    let rgba = image::load_from_memory(bytes)?.to_rgba8();
+    // Decode through ImageDecoder so camera EXIF orientation is applied exactly once. Browser image
+    // elements already honour the same metadata; normalising here keeps import size, layer preview,
+    // raster CAM and the canvas in one coordinate system.
+    let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut decoded = DynamicImage::from_decoder(decoder)?;
+    decoded.apply_orientation(orientation);
+    let rgba = decoded.to_rgba8();
     let (w, h) = rgba.dimensions();
     let mut out = GrayImage::new(w, h);
     for (x, y, p) in rgba.enumerate_pixels() {
@@ -87,6 +98,27 @@ where
 mod tests {
     use super::*;
     use image::{Rgba, RgbaImage};
+
+    #[test]
+    fn orientation_rotation_changes_dimensions_and_keeps_the_marked_corner() {
+        let mut raw = image::RgbaImage::from_pixel(3, 2, Rgba([255, 255, 255, 255]));
+        raw.put_pixel(0, 1, Rgba([0, 0, 0, 255]));
+        let mut dynamic = DynamicImage::ImageRgba8(raw);
+        dynamic.apply_orientation(Orientation::Rotate90);
+        let fixed = dynamic.to_rgba8();
+        assert_eq!(fixed.dimensions(), (2, 3));
+        assert_eq!(fixed.get_pixel(0, 0).0, [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn no_orientation_keeps_dimensions_and_pixels() {
+        let mut raw = image::RgbaImage::from_pixel(4, 2, Rgba([255, 255, 255, 255]));
+        raw.put_pixel(1, 0, Rgba([0, 0, 0, 255]));
+        let expected = raw.clone();
+        let mut dynamic = DynamicImage::ImageRgba8(raw);
+        dynamic.apply_orientation(Orientation::NoTransforms);
+        assert_eq!(dynamic.to_rgba8(), expected);
+    }
 
     #[test]
     fn png_round_trip() {

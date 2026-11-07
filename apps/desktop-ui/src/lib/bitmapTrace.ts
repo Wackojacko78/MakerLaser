@@ -24,6 +24,16 @@ export interface TraceOptions {
   invert: boolean;
   /** 0 (none) to 10: how much the picture is blurred before it is traced. */
   smoothing: number;
+  /** -100 to 100: shifts the source tones before detection. */
+  brightness?: number;
+  /** -100 to 100: expands or compresses contrast around middle grey. */
+  contrast?: number;
+  /** 0.1 to 5: tone-curve correction before detection. */
+  gamma?: number;
+  /** 0 to 100: restores useful local detail after smoothing. */
+  detail?: number;
+  /** 0 to 100: blends the global threshold with a local neighbourhood threshold. */
+  adaptive?: number;
   /**
    * How many times bigger the picture was made before tracing (1 when it was not enlarged). The blur is
    * measured in the picture's own pixels, so an enlarged picture is blurred this many times more:
@@ -52,6 +62,11 @@ export const DEFAULT_TRACE_OPTIONS: Readonly<TraceOptions> = {
   threshold: 128,
   invert: false,
   smoothing: 3,
+  brightness: 0,
+  contrast: 0,
+  gamma: 1,
+  detail: 0,
+  adaptive: 0,
   minAreaPx: 0,
   tolerancePx: 0,
 };
@@ -132,6 +147,41 @@ export function gaussianBlur(gray: ArrayLike<number>, width: number, height: num
       }
       out[y * width + x] = acc;
     }
+  }
+  return out;
+}
+
+
+/** Fast square neighbourhood mean, used for local thresholding and detail recovery. */
+function boxMean(gray: ArrayLike<number>, width: number, height: number, radius: number): Float32Array {
+  const out = new Float32Array(width * height);
+  const stride = width + 1;
+  const integral = new Float64Array((width + 1) * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      row += gray[y * width + x] ?? 255;
+      integral[(y + 1) * stride + x + 1] = (integral[y * stride + x + 1] ?? 0) + row;
+    }
+  }
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const x0 = Math.max(0, x - radius), x1 = Math.min(width - 1, x + radius);
+    const y0 = Math.max(0, y - radius), y1 = Math.min(height - 1, y + radius);
+    const sum = integral[(y1 + 1) * stride + x1 + 1]! - integral[y0 * stride + x1 + 1]! - integral[(y1 + 1) * stride + x0]! + integral[y0 * stride + x0]!;
+    out[y * width + x] = sum / ((x1 - x0 + 1) * (y1 - y0 + 1));
+  }
+  return out;
+}
+
+function adjustTones(gray: ArrayLike<number>, width: number, height: number, brightness: number, contrast: number, gamma: number): Float32Array {
+  const out = new Float32Array(width * height);
+  const lift = brightness * 2.55;
+  const c = Math.max(-99, Math.min(99, contrast));
+  const factor = (259 * (c + 255)) / (255 * (259 - c));
+  const invGamma = 1 / Math.max(0.1, Math.min(5, gamma));
+  for (let i = 0; i < out.length; i++) {
+    const contrasted = factor * ((gray[i] ?? 255) - 128) + 128 + lift;
+    out[i] = 255 * Math.pow(Math.max(0, Math.min(255, contrasted)) / 255, invGamma);
   }
   return out;
 }
@@ -396,17 +446,27 @@ export function traceGray(gray: ArrayLike<number>, width: number, height: number
   const sigma = Math.min(MAX_BLUR_PX, Math.min(MAX_SMOOTHING, Math.max(0, num(options.smoothing, 0))) * BLUR_PX_PER_STEP * grow);
   const minArea = Math.max(0, num(options.minAreaPx, 0));
   const tolerance = Math.max(0, num(options.tolerancePx, 0));
+  const brightness = Math.max(-100, Math.min(100, num(options.brightness ?? 0, 0)));
+  const contrast = Math.max(-100, Math.min(100, num(options.contrast ?? 0, 0)));
+  const gamma = Math.max(0.1, Math.min(5, num(options.gamma ?? 1, 1)));
+  const detail = Math.max(0, Math.min(100, num(options.detail ?? 0, 0))) / 100;
+  const adaptive = Math.max(0, Math.min(100, num(options.adaptive ?? 0, 0))) / 100;
 
-  const blurred = gaussianBlur(gray, width, height, sigma);
+  const toned = adjustTones(gray, width, height, brightness, contrast, gamma);
+  const blurred = gaussianBlur(toned, width, height, sigma);
+  const local = detail > 0 || adaptive > 0 ? boxMean(blurred, width, height, Math.max(3, Math.round(Math.min(width, height) / 50))) : null;
+  const prepared = detail > 0 && local ? Float32Array.from(blurred, (v, i) => Math.max(0, Math.min(255, v + (v - local[i]!) * detail * 2))) : blurred;
   // The field is positive where there is ink, with a border of "not ink" all the way round.
   const w = width + 2;
   const h = height + 2;
   const field = new Float32Array(w * h).fill(-1);
-  const lift = options.invert ? threshold - 255 : 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const v = blurred[y * width + x]!;
-      field[(y + 1) * w + x + 1] = options.invert ? v + lift : threshold - v;
+      const i = y * width + x;
+      const v = prepared[i]!;
+      const localThreshold = local ? threshold + adaptive * (local[i]! - 128) : threshold;
+      const localLift = options.invert ? localThreshold - 255 : 0;
+      field[(y + 1) * w + x + 1] = options.invert ? v + localLift : localThreshold - v;
     }
   }
 

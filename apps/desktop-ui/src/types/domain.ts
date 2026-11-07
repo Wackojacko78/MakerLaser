@@ -23,12 +23,18 @@ export interface Path2D {
   closed: boolean;
 }
 
-export type LayerKind = 'cut' | 'score' | 'fill' | 'image';
-export type DitherAlgorithm = 'none' | 'floyd_steinberg' | 'jarvis' | 'stucki' | 'atkinson';
-export type ScanDirection = 'horizontal' | 'vertical';
+export type LayerKind = "cut" | "score" | "fill" | "image";
+export type DitherAlgorithm =
+  "none" | "floyd_steinberg" | "jarvis" | "stucki" | "atkinson";
+export type ScanDirection = "horizontal" | "vertical";
+export type RasterPowerMode = "dithered" | "grayscale" | "quantized";
 
 export interface RasterOperation {
   dpi: number;
+  power_mode?: RasterPowerMode;
+  min_power_percent?: number;
+  power_levels?: number;
+  white_cutoff?: number;
   dither: DitherAlgorithm;
   direction: ScanDirection;
   bidirectional: boolean;
@@ -71,20 +77,20 @@ export interface Layer {
 }
 
 export interface ImageObjectData {
-  type: 'image';
+  type: "image";
   asset_id: UUID;
-  format: 'png' | 'jpg' | 'jpeg' | 'bmp';
+  format: "png" | "jpg" | "jpeg" | "bmp";
   source_path: string | null;
   width_px: number;
   height_px: number;
   dpi: number;
 }
 
-export type TextAlignment = 'left' | 'center' | 'right';
+export type TextAlignment = "left" | "center" | "right";
 
 /** What a text object was made from, so it can be edited again. */
 export interface TextSource {
-  type: 'text';
+  type: "text";
   text: string;
   font_family: string;
   bold: boolean;
@@ -95,11 +101,11 @@ export interface TextSource {
   line_spacing: number;
 }
 
-export type ShapeKind = 'rectangle' | 'ellipse' | 'polygon' | 'star';
+export type ShapeKind = "rectangle" | "ellipse" | "polygon" | "star";
 
 /** What a shape object was made from, so it can be edited again. */
 export interface ShapeSource {
-  type: 'shape';
+  type: "shape";
   shape: ShapeKind;
   width_mm: number;
   height_mm: number;
@@ -114,7 +120,7 @@ export interface ShapeSource {
 export type ObjectSource = TextSource | ShapeSource;
 
 /** How the two handles of a node are tied together when one is dragged. Absent means corner (the handles are free). */
-export type NodeMode = 'corner' | 'smooth' | 'symmetric';
+export type NodeMode = "corner" | "smooth" | "symmetric";
 /** A Bezier handle, as an offset from its node in mm. */
 export interface NodeHandle {
   x: number;
@@ -136,7 +142,7 @@ export interface NodePath {
   nodes: PathNode[];
 }
 export interface VectorObjectData {
-  type: 'vector';
+  type: "vector";
   /** The outlines as straight segments. This is what the laser, the preview and the shape tools use. When `nodes` is present it is always the flattened form of it. */
   paths: Path2D[];
   /** Set for text and shapes made in MakerLaser: what they were made from. Absent for imported artwork and for older files. */
@@ -158,10 +164,11 @@ export interface WorkspaceObject {
   z_index: number;
 }
 
-export type MachineOrigin = 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+export type MachineOrigin =
+  "top_left" | "top_right" | "bottom_left" | "bottom_right";
 
 /** How MakerLaser reaches a machine. USB serial is the default; WebSocket and Telnet are for FluidNC. */
-export type ConnectionKind = 'serial' | 'websocket' | 'telnet';
+export type ConnectionKind = "serial" | "websocket" | "telnet";
 
 export interface ConnectionSettings {
   kind: ConnectionKind;
@@ -174,7 +181,7 @@ export interface ConnectionSettings {
 export interface MachineProfile {
   id: UUID;
   name: string;
-  controller: 'grbl1_1' | 'ruida' | 'galvo';
+  controller: "grbl1_1" | "ruida" | "galvo";
   bed_width_mm: number;
   bed_height_mm: number;
   origin: MachineOrigin;
@@ -224,13 +231,22 @@ export interface MaterialLibrary {
 }
 
 /** Where the job is placed: on the bed, or relative to the laser head. */
-export type StartFrom = 'absolute' | 'current_position' | 'user_origin';
+export type StartFrom = "absolute" | "current_position" | "user_origin";
 
 /** Which point of the job sits on the head for the relative modes (the nine dots). */
-export type JobOrigin = 'top_left' | 'top' | 'top_right' | 'left' | 'center' | 'right' | 'bottom_left' | 'bottom' | 'bottom_right';
+export type JobOrigin =
+  | "top_left"
+  | "top"
+  | "top_right"
+  | "left"
+  | "center"
+  | "right"
+  | "bottom_left"
+  | "bottom"
+  | "bottom_right";
 
 export interface ProjectSettings {
-  units: 'mm' | 'inch';
+  units: "mm" | "inch";
   grid_spacing_mm: number;
   show_grid: boolean;
   show_origin: boolean;
@@ -277,8 +293,8 @@ export interface ToolpathStats {
   engrave_mm: number;
 }
 
-/** `[x0, y0, x1, y1, kind]` in workspace mm. kind: 0 travel, 1 cut, 2 score, 3 fill, 4 engrave. */
-export type PreviewSegment = [number, number, number, number, number];
+/** `[x0, y0, x1, y1, kind, powerPercent?]` in workspace mm. Power is included by current builds and optional for older cached responses. */
+export type PreviewSegment = [number, number, number, number, number, number?];
 
 export interface GenerateResponse {
   gcode_preview: string;
@@ -296,16 +312,16 @@ export interface GenerateResponse {
 }
 
 export type MachineState =
-  | 'idle'
-  | 'run'
-  | 'hold'
-  | 'jog'
-  | 'alarm'
-  | 'door'
-  | 'check'
-  | 'home'
-  | 'sleep'
-  | 'unknown';
+  | "idle"
+  | "run"
+  | "hold"
+  | "jog"
+  | "alarm"
+  | "door"
+  | "check"
+  | "home"
+  | "sleep"
+  | "unknown";
 
 export interface GrblStatus {
   state: MachineState;
@@ -316,13 +332,13 @@ export interface GrblStatus {
 }
 
 export type JobEventPayload =
-  | { type: 'progress'; done: number; total: number }
-  | { type: 'message'; text: string }
-  | { type: 'paused' }
-  | { type: 'resumed' }
-  | { type: 'completed' }
-  | { type: 'aborted' }
-  | { type: 'failed'; message: string };
+  | { type: "progress"; done: number; total: number }
+  | { type: "message"; text: string }
+  | { type: "paused" }
+  | { type: "resumed" }
+  | { type: "completed" }
+  | { type: "aborted" }
+  | { type: "failed"; message: string };
 
 export interface SerialPortInfo {
   name: string;
