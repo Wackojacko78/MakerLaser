@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /MakerLaser/
+
+Sitemap: https://wackojacko78.github.io/MakerLaser/sitemap.xml
