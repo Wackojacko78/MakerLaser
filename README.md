@@ -1,12 +1,12 @@
-# MakerLaser
+﻿# MakerLaser
 
 **Free, open-source laser CAD/CAM software for designing, preparing and running laser cutting and engraving jobs.**
 
-[Website](https://wackojacko78.github.io/MakerLaser/) · [Download](https://github.com/Wackojacko78/MakerLaser/releases) · [Report an issue](https://github.com/Wackojacko78/MakerLaser/issues)
+[Website](https://wackojacko78.github.io/MakerLaser/) | [Download](https://github.com/Wackojacko78/MakerLaser/releases) | [Report an issue](https://github.com/Wackojacko78/MakerLaser/issues)
 
 ![MakerLaser workspace](docs/images/makerlaser-hero.png)
 
-MakerLaser is built for hobbyists, makers and small businesses who want a straightforward path from **design → job preparation → laser**. It targets the **Two Trees TTS-55 Pro** first and **GRBL 1.1** machines more broadly, with an architecture that leaves room for additional controller families later.
+MakerLaser is built for hobbyists, makers and small businesses who want a straightforward path from **design â†’ job preparation â†’ laser**. It targets the **Two Trees TTS-55 Pro** first and **GRBL 1.1** machines more broadly, with an architecture that leaves room for additional controller families later.
 
 > **Status: pre-release.** MakerLaser is under active development. It has generated and run real jobs on a Two Trees TTS-55 Pro, but some newer features still need broader real-machine testing. Read [VERIFICATION.md](VERIFICATION.md) for the current verification status and [SAFETY.md](SAFETY.md) before the first powered job.
 
@@ -39,7 +39,7 @@ New here? Start with the [user guide](docs/user-guide.md). The complete document
 |---|---|
 | **Workspace** | Pan/zoom canvas, grid, machine bed, origin marker, box and multi-select, move/resize/rotate, duplicate, delete, undo/redo, numeric position and size, native drag-and-drop, resizable panels |
 | **Drawing** | Rectangle, ellipse, polygon, star and text created directly on the canvas with exact numeric sizing and editing afterwards; 35 built-in fonts plus installed system fonts |
-| **Node editing** | Node selection and movement, add/delete nodes, Bézier handles and node types, curve fitting and snapping |
+| **Node editing** | Node selection and movement, add/delete nodes, BÃ©zier handles and node types, curve fitting and snapping |
 | **Import** | SVG including path commands, transforms, units, `<use>` and `<symbol>`; DXF including LINE, ARC, CIRCLE, ELLIPSE, LWPOLYLINE with bulges, POLYLINE, SPLINE, INSERT blocks and arrays; PNG/JPG/JPEG/BMP |
 | **Measure** | Snap to corners, midpoints, centres and edges; distances, angles, gaps; selection size and outline length |
 | **Geometry** | Boolean union/difference/intersection/XOR, offsets, fillets and chamfers, arrays, kerf compensation |
@@ -75,19 +75,19 @@ For macOS/Linux notes and troubleshooting, see [INSTALL.md](INSTALL.md) and [doc
 
 ```text
 React UI (Konva canvas, Zustand state)                 apps/desktop-ui
-        │
-        │ Tauri commands
-        ▼
+        â”‚
+        â”‚ Tauri commands
+        â–¼
 Application services                                  apps/rust-core
-        │
-        ▼
-Domain models → Operations → Toolpaths → G-code       packages/common, packages/project
-        ▲                                      │
-        │                                      ▼
+        â”‚
+        â–¼
+Domain models â†’ Operations â†’ Toolpaths â†’ G-code       packages/common, packages/project
+        â–²                                      â”‚
+        â”‚                                      â–¼
 Geometry / import          Raster                Machine layer
 packages/geometry          packages/raster      packages/machine
-                                                    │
-                                                    ▼
+                                                    â”‚
+                                                    â–¼
                                                 Hardware
 ```
 
@@ -143,4 +143,4 @@ No code from LaserGRBL or any other GPL project is included; see [THIRD_PARTY_NO
 
 ---
 
-**[MakerLaser website](https://wackojacko78.github.io/MakerLaser/) · [Download](https://github.com/Wackojacko78/MakerLaser/releases) · [GitHub](https://github.com/Wackojacko78/MakerLaser)**
+**[MakerLaser website](https://wackojacko78.github.io/MakerLaser/) | [Download](https://github.com/Wackojacko78/MakerLaser/releases) | [GitHub](https://github.com/Wackojacko78/MakerLaser)**
