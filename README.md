@@ -6,7 +6,7 @@
 
 ![MakerLaser workspace](docs/images/makerlaser-hero.png)
 
-MakerLaser is built for hobbyists, makers and small businesses who want a straightforward path from **design â†’ job preparation â†’ laser**. It targets the **Two Trees TTS-55 Pro** first and **GRBL 1.1** machines more broadly, with an architecture that leaves room for additional controller families later.
+MakerLaser is built for hobbyists, makers and small businesses who want a straightforward path from **design’ job preparation’ laser**. It targets the **Two Trees TTS-55 Pro** first and **GRBL 1.1** machines more broadly, with an architecture that leaves room for additional controller families later.
 
 > **Status: pre-release.** MakerLaser is under active development. It has generated and run real jobs on a Two Trees TTS-55 Pro, but some newer features still need broader real-machine testing. Read [VERIFICATION.md](VERIFICATION.md) for the current verification status and [SAFETY.md](SAFETY.md) before the first powered job.
 
@@ -75,19 +75,19 @@ For macOS/Linux notes and troubleshooting, see [INSTALL.md](INSTALL.md) and [doc
 
 ```text
 React UI (Konva canvas, Zustand state)                 apps/desktop-ui
-        â”‚
-        â”‚ Tauri commands
-        â–¼
+        ”‚
+        ”‚ Tauri commands
+        –¼
 Application services                                  apps/rust-core
-        â”‚
-        â–¼
-Domain models â†’ Operations â†’ Toolpaths â†’ G-code       packages/common, packages/project
-        â–²                                      â”‚
-        â”‚                                      â–¼
+        ”‚
+        –¼
+Domain models †’ Operations †’ Toolpaths †’ G-code       packages/common, packages/project
+        –²                                      ”‚
+        ”‚                                      –¼
 Geometry / import          Raster                Machine layer
 packages/geometry          packages/raster      packages/machine
-                                                    â”‚
-                                                    â–¼
+                                                    ”‚
+                                                    –¼
                                                 Hardware
 ```
 
